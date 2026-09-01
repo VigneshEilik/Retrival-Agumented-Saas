@@ -94,7 +94,10 @@ export function SaaSLayout({ children }: SaaSLayoutProps) {
             <div className="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Platform Engine</div>
             {mainNavItems.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+              const isActive =
+                item.href === '/agent'
+                  ? pathname === '/agent'
+                  : pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
               return (
                 <Link
                   key={item.name}
