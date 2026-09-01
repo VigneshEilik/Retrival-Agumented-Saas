@@ -1,0 +1,14 @@
+[
+  {
+    "id": "eval-1",
+    "question": "What is the annual leave policy for full-time employees?",
+    "expectedDocumentTitle": "HR Policy Manual.pdf",
+    "expectedKeywords": ["annual leave", "20 days", "approval"]
+  },
+  {
+    "id": "eval-2",
+    "question": "What are the security requirements for database connections?",
+    "expectedDocumentTitle": "Architecture Spec.pdf",
+    "expectedKeywords": ["HTTPS", "PostgreSQL", "pgvector", "Row-Level Security"]
+  }
+]

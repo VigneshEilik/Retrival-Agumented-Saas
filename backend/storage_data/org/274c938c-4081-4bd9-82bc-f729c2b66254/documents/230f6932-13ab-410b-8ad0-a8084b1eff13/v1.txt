@@ -1,0 +1,5 @@
+Section 1: Security Practices.
+All services must enforce HTTPS and JWT session validation.
+
+Section 2: Database Storage.
+PostgreSQL pgvector stores tenant embeddings.
