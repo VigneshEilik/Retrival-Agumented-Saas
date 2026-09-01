@@ -32,7 +32,16 @@ export default function DocumentManagementPage() {
 
   const fetchDocuments = () => {
     setIsLoading(true);
-    fetch('/api/v1/documents')
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    if (!token) {
+      setDocuments(getSampleDocuments());
+      setIsLoading(false);
+      return;
+    }
+
+    fetch('/api/v1/documents', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((res) => {
         if (!res.ok) throw new Error('Unauthenticated');
         return res.json();

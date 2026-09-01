@@ -14,8 +14,33 @@ export default function DashboardPage() {
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const getFallbackData = () => ({
+    usage: {
+      promptTokens: 1420500,
+      completionTokens: 680200,
+      totalTokens: 2100700,
+      estimatedCostUsd: 4.21,
+      documentCount: 128,
+      agentCount: 12,
+      conversationCount: 24,
+    },
+    subscription: {
+      planTier: 'BUSINESS',
+      monthlyTokenLimit: 2500000,
+    },
+  });
+
   useEffect(() => {
-    fetch('/api/v1/analytics/overview')
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    if (!token) {
+      setData(getFallbackData());
+      setIsLoading(false);
+      return;
+    }
+
+    fetch('/api/v1/analytics/overview', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((res) => {
         if (!res.ok) throw new Error('Unauthenticated');
         return res.json();
@@ -25,22 +50,7 @@ export default function DashboardPage() {
         setIsLoading(false);
       })
       .catch(() => {
-        // Fallback default state for demo if API backend offline
-        setData({
-          usage: {
-            promptTokens: 1420500,
-            completionTokens: 680200,
-            totalTokens: 2100700,
-            estimatedCostUsd: 4.21,
-            documentCount: 128,
-            agentCount: 12,
-            conversationCount: 24,
-          },
-          subscription: {
-            planTier: 'BUSINESS',
-            monthlyTokenLimit: 2500000,
-          },
-        });
+        setData(getFallbackData());
         setIsLoading(false);
       });
   }, []);
