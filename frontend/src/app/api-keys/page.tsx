@@ -2,179 +2,156 @@
 
 import React, { useState } from 'react';
 import { SaaSLayout } from '@/components/SaaSLayout';
-import { Key, Plus, ShieldCheck, Copy, Check, Trash2, AlertCircle } from 'lucide-react';
-
-interface ApiKeyItem {
-  id: string;
-  name: string;
-  maskedKey: string;
-  createdAt: string;
-  lastUsedAt?: string;
-}
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
+import { Input } from '@/components/ui/Input';
+import { Key, Plus, ShieldCheck, Copy, Check, Trash2, AlertTriangle } from 'lucide-react';
 
 export default function ApiKeysPage() {
-  const [keys, setKeys] = useState<ApiKeyItem[]>([
-    { id: 'key-1', name: 'Production Backend Service', maskedKey: 'sk_live_••••••••782a', createdAt: '2026-08-25', lastUsedAt: '2 min ago' },
-    { id: 'key-2', name: 'Staging Integration Key', maskedKey: 'sk_live_••••••••910b', createdAt: '2026-08-30', lastUsedAt: '1 day ago' },
-  ]);
-
-  const [newKeyName, setNewKeyName] = useState('');
-  const [createdRawKey, setCreatedRawKey] = useState<string | null>(null);
-  const [showModal, setShowModal] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [keyName, setKeyName] = useState('');
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const handleCreateKey = (e: React.FormEvent) => {
+  const apiKeys = [
+    { id: 'key-1', name: 'Production Backend Service', prefix: 'sk_live_a89f••••', created: '2026-08-10', lastUsed: '2 mins ago', status: 'ACTIVE' },
+    { id: 'key-2', name: 'CI/CD Pipeline Integration', prefix: 'sk_live_32f1••••', created: '2026-08-22', lastUsed: '3 days ago', status: 'ACTIVE' },
+  ];
+
+  const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newKeyName.trim()) return;
-
-    const raw = `sk_live_${Math.random().toString(36).substring(2)}${Math.random().toString(36).substring(2)}`;
-    const newKeyItem: ApiKeyItem = {
-      id: `key-${Date.now()}`,
-      name: newKeyName,
-      maskedKey: `sk_live_••••••••${raw.slice(-4)}`,
-      createdAt: new Date().toISOString().split('T')[0],
-      lastUsedAt: 'Just now',
-    };
-
-    setKeys((prev) => [newKeyItem, ...prev]);
-    setCreatedRawKey(raw);
+    const mockSecret = `sk_live_${Math.random().toString(36).substring(2)}${Math.random().toString(36).substring(2)}`;
+    setGeneratedKey(mockSecret);
   };
 
   const handleCopy = () => {
-    if (createdRawKey) {
-      navigator.clipboard.writeText(createdRawKey);
+    if (generatedKey) {
+      navigator.clipboard.writeText(generatedKey);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  const handleRevoke = (id: string) => {
-    setKeys((prev) => prev.filter((k) => k.id !== id));
-  };
-
-  const closeModal = () => {
-    setShowModal(false);
-    setCreatedRawKey(null);
-    setNewKeyName('');
-  };
-
   return (
     <SaaSLayout>
-      <div className="max-w-6xl mx-auto space-y-8">
+      <div className="space-y-6 max-w-7xl mx-auto">
         
-        {/* Top Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-800 pb-6">
+        {/* Page Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
           <div>
-            <div className="flex items-center gap-2 text-indigo-400 text-sm font-medium mb-1">
-              <Key className="w-4 h-4" /> Developer API Key Security
+            <div className="flex items-center gap-2">
+              <Key className="w-5 h-5 text-indigo-400" />
+              <h1 className="text-2xl font-extrabold text-white tracking-tight">Production API Key Security Center</h1>
+              <Badge variant="indigo" size="sm">HMAC SHA-256 Hashed</Badge>
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-white">Production API Keys</h1>
-            <p className="text-gray-400 text-sm mt-1">Manage SHA-256 hashed API keys for external programmatic access.</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Manage programmatic API access. Keys carry workspace permissions and are authenticated via server middleware.
+            </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg shadow-lg shadow-indigo-600/30 transition-all text-sm"
-            >
-              <Plus className="w-4 h-4" /> Create New API Key
-            </button>
-          </div>
+          <Button
+            onClick={() => {
+              setGeneratedKey(null);
+              setIsCreateModalOpen(true);
+            }}
+            leftIcon={<Plus className="w-4 h-4" />}
+            variant="primary"
+            size="md"
+          >
+            Create New API Key
+          </Button>
         </div>
 
         {/* API Keys Table */}
-        <div className="glass-panel rounded-xl overflow-hidden border border-gray-800">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-gray-900/60 border-b border-gray-800 text-gray-400 font-medium">
-              <tr>
-                <th className="py-3.5 px-4">Name</th>
-                <th className="py-3.5 px-4">API Key Token</th>
-                <th className="py-3.5 px-4">Created Date</th>
-                <th className="py-3.5 px-4">Last Used</th>
-                <th className="py-3.5 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800/60">
-              {keys.map((k) => (
-                <tr key={k.id} className="hover:bg-gray-800/30 transition-colors">
-                  <td className="py-4 px-4 font-medium text-white">{k.name}</td>
-                  <td className="py-4 px-4 font-mono text-gray-400 text-xs">{k.maskedKey}</td>
-                  <td className="py-4 px-4 text-gray-400 font-mono text-xs">{k.createdAt}</td>
-                  <td className="py-4 px-4 text-gray-300 text-xs">{k.lastUsedAt || 'Never'}</td>
-                  <td className="py-4 px-4 text-right">
-                    <button
-                      onClick={() => handleRevoke(k.id)}
-                      className="p-1.5 text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
-                      title="Revoke Key"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
+        <Card className="p-0 overflow-hidden">
+          <div className="p-4 border-b border-slate-800 bg-slate-950/40 text-xs font-bold text-white uppercase tracking-wider">
+            Active Workspace API Keys
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                  <th className="py-3 px-4">Key Name</th>
+                  <th className="py-3 px-4">Key Prefix</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Created</th>
+                  <th className="py-3 px-4">Last Used</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                {apiKeys.map((key) => (
+                  <tr key={key.id} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="py-3.5 px-4 font-medium text-white">{key.name}</td>
+                    <td className="py-3.5 px-4 font-mono text-indigo-300">{key.prefix}</td>
+                    <td className="py-3.5 px-4"><Badge variant="success" size="sm">ACTIVE</Badge></td>
+                    <td className="py-3.5 px-4 text-slate-400">{key.created}</td>
+                    <td className="py-3.5 px-4 text-slate-400">{key.lastUsed}</td>
+                    <td className="py-3.5 px-4 text-right">
+                      <button className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
 
         {/* Create API Key Modal */}
-        {showModal && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-            <div className="glass-panel p-6 rounded-xl border border-gray-800 max-w-md w-full space-y-4">
-              <h3 className="text-lg font-bold text-white">Create API Key</h3>
-
-              {!createdRawKey ? (
-                <form onSubmit={handleCreateKey} className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1">Key Description Name</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Mobile App Backend"
-                      value={newKeyName}
-                      onChange={(e) => setNewKeyName(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-gray-900 border border-gray-800 rounded-lg text-sm text-white focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                  <div className="flex justify-end gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={closeModal}
-                      className="px-4 py-2 text-sm text-gray-400 hover:text-white bg-gray-900 rounded-lg border border-gray-800"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-5 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg font-medium shadow-lg"
-                    >
-                      Generate Key
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <div className="space-y-4">
-                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs rounded-lg flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    Copy this raw API key now. For security, it will NEVER be displayed again!
-                  </div>
-
-                  <div className="flex items-center gap-2 p-3 bg-gray-900 border border-gray-800 rounded-lg font-mono text-xs text-white">
-                    <input type="text" readOnly value={createdRawKey} className="bg-transparent flex-1 outline-none text-emerald-400 font-bold" />
-                    <button onClick={handleCopy} className="p-1.5 text-gray-400 hover:text-white bg-gray-800 rounded">
-                      {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                  </div>
-
-                  <div className="flex justify-end pt-2">
-                    <button onClick={closeModal} className="px-5 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg font-medium">
-                      Done
-                    </button>
-                  </div>
+        <Modal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          title={generatedKey ? 'API Key Generated Successfully' : 'Create New API Key'}
+        >
+          {generatedKey ? (
+            <div className="space-y-4">
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-300 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4" /> Save your secret key now!
                 </div>
-              )}
+                <p className="text-[11px] leading-normal text-amber-200/80">
+                  This key will never be shown again. Copy it now and store it in a secure password manager.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between font-mono text-xs text-white">
+                <span className="truncate mr-2">{generatedKey}</span>
+                <button onClick={handleCopy} className="p-1.5 text-slate-400 hover:text-white rounded bg-slate-900">
+                  {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                </button>
+              </div>
+
+              <div className="pt-2">
+                <Button variant="primary" size="sm" className="w-full" onClick={() => setIsCreateModalOpen(false)}>
+                  Done & Close
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <form onSubmit={handleCreateSubmit} className="space-y-4">
+              <Input
+                label="Key Description Name"
+                placeholder="e.g. Staging Server Webhook Integration"
+                value={keyName}
+                onChange={(e) => setKeyName(e.target.value)}
+                required
+              />
+
+              <div className="flex justify-end gap-3 pt-2">
+                <Button variant="outline" size="sm" onClick={() => setIsCreateModalOpen(false)} type="button">
+                  Cancel
+                </Button>
+                <Button variant="primary" size="sm" type="submit" disabled={!keyName.trim()}>
+                  Generate Secret Key
+                </Button>
+              </div>
+            </form>
+          )}
+        </Modal>
 
       </div>
     </SaaSLayout>

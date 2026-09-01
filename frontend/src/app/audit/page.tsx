@@ -2,137 +2,102 @@
 
 import React, { useState } from 'react';
 import { SaaSLayout } from '@/components/SaaSLayout';
-import { ShieldCheck, Search, Filter, Clock, User, FileText, Key, Database } from 'lucide-react';
+import { Card } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Input } from '@/components/ui/Input';
+import { ShieldCheck, Search, Filter, Clock } from 'lucide-react';
 
-interface AuditItem {
-  id: string;
-  timestamp: string;
-  user: string;
-  action: string;
-  resourceType: string;
-  resourceId: string;
-  details?: string;
-}
-
-export default function AuditCenterPage() {
-  const [logs] = useState<AuditItem[]>([
-    {
-      id: 'log-1',
-      timestamp: '2026-09-01 12:04:15',
-      user: 'vignesh@acme.com',
-      action: 'API_KEY_CREATED',
-      resourceType: 'api_key',
-      resourceId: 'key-101',
-      details: 'Created API key "Production Service"',
-    },
-    {
-      id: 'log-2',
-      timestamp: '2026-09-01 11:52:30',
-      user: 'priya@acme.com',
-      action: 'DOCUMENT_UPLOADED',
-      resourceType: 'document',
-      resourceId: 'doc-402',
-      details: 'Uploaded "HR Policy Manual.pdf" (4.2 MB)',
-    },
-    {
-      id: 'log-3',
-      timestamp: '2026-09-01 11:41:00',
-      user: 'arun@acme.com',
-      action: 'KNOWLEDGE_BASE_CREATED',
-      resourceType: 'knowledge_base',
-      resourceId: 'kb-201',
-      details: 'Created Knowledge Base "Engineering Docs"',
-    },
-  ]);
-
-  const [filter, setFilter] = useState('ALL');
+export default function AuditLogPage() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [actionFilter, setActionFilter] = useState('ALL');
 
-  const filteredLogs = logs.filter((l) => {
-    const matchesFilter = filter === 'ALL' || l.action === filter;
-    const matchesSearch =
-      l.user.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      l.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (l.details && l.details.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesFilter && matchesSearch;
+  const auditEvents = [
+    { id: 'evt-101', timestamp: '2026-09-01 14:10:02', user: 'vignesh@acme.com', action: 'DOCUMENT_UPLOADED', resource: 'Enterprise_HR_Policy_Handbook.pdf', ip: '192.168.1.45' },
+    { id: 'evt-102', timestamp: '2026-09-01 13:45:22', user: 'vignesh@acme.com', action: 'API_KEY_CREATED', resource: 'sk_live_a89f••••', ip: '192.168.1.45' },
+    { id: 'evt-103', timestamp: '2026-09-01 12:15:00', user: 'sarah@acme.com', action: 'AGENT_UPDATED', resource: 'Enterprise Customer Assistant', ip: '10.0.4.12' },
+    { id: 'evt-104', timestamp: '2026-09-01 10:00:11', user: 'system_worker', action: 'INGESTION_COMPLETED', resource: 'doc-1 (48 Chunks)', ip: '127.0.0.1' },
+  ];
+
+  const filteredEvents = auditEvents.filter((evt) => {
+    const matchesSearch = evt.user.toLowerCase().includes(searchQuery.toLowerCase()) || evt.resource.toLowerCase().includes(searchQuery.toLowerCase());
+    if (actionFilter === 'ALL') return matchesSearch;
+    return matchesSearch && evt.action === actionFilter;
   });
 
   return (
     <SaaSLayout>
-      <div className="max-w-6xl mx-auto space-y-8">
+      <div className="space-y-6 max-w-7xl mx-auto">
         
-        {/* Top Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-800 pb-6">
+        {/* Page Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
           <div>
-            <div className="flex items-center gap-2 text-indigo-400 text-sm font-medium mb-1">
-              <ShieldCheck className="w-4 h-4" /> Enterprise Security & Compliance
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-indigo-400" />
+              <h1 className="text-2xl font-extrabold text-white tracking-tight">Tenant Audit Log Center</h1>
+              <Badge variant="indigo" size="sm">Immutable Ledger</Badge>
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-white">Tenant Audit Log Center</h1>
-            <p className="text-gray-400 text-sm mt-1">Immutable, tenant-scoped audit records for regulatory compliance and security tracing.</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Complete audit trail of security events, document uploads, agent modifications, and access control changes.
+            </p>
           </div>
         </div>
 
-        {/* Search & Action Filters */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
-            {['ALL', 'DOCUMENT_UPLOADED', 'API_KEY_CREATED', 'KNOWLEDGE_BASE_CREATED'].map((act) => (
-              <button
-                key={act}
-                onClick={() => setFilter(act)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  filter === act
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-800/80 text-gray-400 hover:text-white hover:bg-gray-700'
-                }`}
-              >
-                {act}
-              </button>
-            ))}
+        {/* Filter Controls */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Filter className="w-4 h-4 text-slate-400 ml-2" />
+            <select
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              className="bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500 font-medium"
+            >
+              <option value="ALL">All Event Actions</option>
+              <option value="DOCUMENT_UPLOADED">DOCUMENT_UPLOADED</option>
+              <option value="API_KEY_CREATED">API_KEY_CREATED</option>
+              <option value="AGENT_UPDATED">AGENT_UPDATED</option>
+              <option value="INGESTION_COMPLETED">INGESTION_COMPLETED</option>
+            </select>
           </div>
 
-          <div className="relative w-full md:w-64">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search audit logs..."
+          <div className="w-full sm:w-72">
+            <Input
+              placeholder="Search by user email or resource..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-gray-900 border border-gray-800 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+              leftIcon={<Search className="w-4 h-4" />}
             />
           </div>
         </div>
 
         {/* Audit Log Table */}
-        <div className="glass-panel rounded-xl overflow-hidden border border-gray-800">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-gray-900/60 border-b border-gray-800 text-gray-400 font-medium">
-              <tr>
-                <th className="py-3.5 px-4">Timestamp</th>
-                <th className="py-3.5 px-4">User</th>
-                <th className="py-3.5 px-4">Action</th>
-                <th className="py-3.5 px-4">Resource</th>
-                <th className="py-3.5 px-4">Details</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800/60">
-              {filteredLogs.map((l) => (
-                <tr key={l.id} className="hover:bg-gray-800/30 transition-colors">
-                  <td className="py-4 px-4 text-gray-400 font-mono text-xs flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-indigo-400" /> {l.timestamp}
-                  </td>
-                  <td className="py-4 px-4 font-medium text-white">{l.user}</td>
-                  <td className="py-4 px-4">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
-                      {l.action}
-                    </span>
-                  </td>
-                  <td className="py-4 px-4 text-gray-400 font-mono text-xs">{l.resourceType}:{l.resourceId}</td>
-                  <td className="py-4 px-4 text-gray-300 text-xs">{l.details || '-'}</td>
+        <Card className="p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                  <th className="py-3 px-4">Timestamp</th>
+                  <th className="py-3 px-4">User / Actor</th>
+                  <th className="py-3 px-4">Action Event</th>
+                  <th className="py-3 px-4">Target Resource</th>
+                  <th className="py-3 px-4 text-right">IP Address</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                {filteredEvents.map((evt) => (
+                  <tr key={evt.id} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="py-3.5 px-4 font-mono text-slate-400">{evt.timestamp}</td>
+                    <td className="py-3.5 px-4 font-medium text-white">{evt.user}</td>
+                    <td className="py-3.5 px-4">
+                      <Badge variant="indigo" size="sm">{evt.action}</Badge>
+                    </td>
+                    <td className="py-3.5 px-4 font-mono text-slate-300">{evt.resource}</td>
+                    <td className="py-3.5 px-4 text-right font-mono text-slate-400">{evt.ip}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
 
       </div>
     </SaaSLayout>

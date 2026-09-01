@@ -15,9 +15,11 @@ const redisConnection = new Redis(config.redisUrl, {
   },
 });
 
+let loggedRedisWarning = false;
 redisConnection.on('error', (err) => {
-  if (process.env.NODE_ENV !== 'test') {
-    logger.error({ err }, 'Redis connection error');
+  if (!loggedRedisWarning && process.env.NODE_ENV !== 'test') {
+    logger.warn('Redis server unavailable at ' + config.redisUrl + '. Background queue & rate limiting operating in fallback mode.');
+    loggedRedisWarning = true;
   }
 });
 

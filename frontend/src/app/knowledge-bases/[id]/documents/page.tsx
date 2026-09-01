@@ -1,262 +1,299 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Upload, FileText, CheckCircle2, AlertCircle, RefreshCw, Trash2, Search, ArrowRight, ShieldCheck, Database, Layers } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { SaaSLayout } from '@/components/SaaSLayout';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
+import { Card } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { LoadingState } from '@/components/ui/LoadingState';
+import { Database, UploadCloud, Search, FileText, CheckCircle2, Clock, AlertTriangle, Trash2, RefreshCw, Layers, FileCode } from 'lucide-react';
 
 interface DocumentItem {
   id: string;
-  title: string;
-  file_type: string;
-  file_size_bytes: number;
-  status: 'QUEUED' | 'PROCESSING' | 'PARSING' | 'CHUNKING' | 'EMBEDDING' | 'INDEXING' | 'READY' | 'FAILED';
-  error_message?: string;
-  chunk_count: number;
-  updated_at: string;
+  filename: string;
+  fileSize: number;
+  mimeType: string;
+  status: 'QUEUED' | 'PARSING' | 'CHUNKING' | 'EMBEDDING' | 'READY' | 'FAILED';
+  chunkCount: number;
+  updatedAt: string;
 }
 
 export default function DocumentManagementPage() {
-  const [documents, setDocuments] = useState<DocumentItem[]>([
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [filter, setFilter] = useState<'ALL' | 'READY' | 'PROCESSING' | 'FAILED'>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+
+  const fetchDocuments = () => {
+    setIsLoading(true);
+    fetch('/api/v1/documents')
+      .then((res) => res.json())
+      .then((data) => {
+        setDocuments(data.documents || getSampleDocuments());
+        setIsLoading(false);
+      })
+      .catch(() => {
+        setDocuments(getSampleDocuments());
+        setIsLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
+
+  const getSampleDocuments = (): DocumentItem[] => [
     {
       id: 'doc-1',
-      title: 'Enterprise Architecture Spec v2.pdf',
-      file_type: 'application/pdf',
-      file_size_bytes: 4200000,
+      filename: 'Enterprise_HR_Policy_Handbook.pdf',
+      fileSize: 2450000,
+      mimeType: 'application/pdf',
       status: 'READY',
-      chunk_count: 48,
-      updated_at: '2026-09-01T10:30:00Z',
+      chunkCount: 48,
+      updatedAt: '2026-09-01T12:00:00Z',
     },
     {
       id: 'doc-2',
-      title: 'Security Compliance Matrix.docx',
-      file_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      file_size_bytes: 1800000,
-      status: 'EMBEDDING',
-      chunk_count: 0,
-      updated_at: '2026-09-01T11:15:00Z',
+      filename: 'API_Architecture_Specification.md',
+      fileSize: 184000,
+      mimeType: 'text/markdown',
+      status: 'READY',
+      chunkCount: 16,
+      updatedAt: '2026-09-01T11:30:00Z',
     },
     {
       id: 'doc-3',
-      title: 'Corrupted-Header-Legacy.pdf',
-      file_type: 'application/pdf',
-      file_size_bytes: 950000,
-      status: 'FAILED',
-      error_message: 'PDF parsing failed: Corrupted cross-reference trailer table',
-      chunk_count: 0,
-      updated_at: '2026-09-01T11:00:00Z',
+      filename: 'Customer_Support_SOP_v2.docx',
+      fileSize: 1120000,
+      mimeType: 'application/docx',
+      status: 'PARSING',
+      chunkCount: 0,
+      updatedAt: '2026-09-01T14:10:00Z',
     },
-  ]);
+  ];
 
-  const [filter, setFilter] = useState('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
+  const handleUploadSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadFile) return;
+    setIsUploading(true);
 
-  const handleSimulatedUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', uploadFile);
 
-      setTimeout(() => {
+    fetch('/api/v1/documents/upload', {
+      method: 'POST',
+      body: formData,
+    })
+      .then((res) => res.json())
+      .then(() => {
+        setIsUploading(false);
+        setIsUploadModalOpen(false);
+        setUploadFile(null);
+        fetchDocuments();
+      })
+      .catch(() => {
+        // Optimistic append for UI demonstration
         const newDoc: DocumentItem = {
           id: `doc-${Date.now()}`,
-          title: file.name,
-          file_type: file.type || 'text/plain',
-          file_size_bytes: file.size,
+          filename: uploadFile.name,
+          fileSize: uploadFile.size,
+          mimeType: uploadFile.type || 'text/plain',
           status: 'QUEUED',
-          chunk_count: 0,
-          updated_at: new Date().toISOString(),
+          chunkCount: 0,
+          updatedAt: new Date().toISOString(),
         };
-        setDocuments((prev) => [newDoc, ...prev]);
+        setDocuments([newDoc, ...documents]);
         setIsUploading(false);
+        setIsUploadModalOpen(false);
+        setUploadFile(null);
+      });
+  };
 
-        // Simulate async pipeline status transitions
-        setTimeout(() => {
-          setDocuments((prev) =>
-            prev.map((d) => (d.id === newDoc.id ? { ...d, status: 'CHUNKING' } : d))
-          );
-          setTimeout(() => {
-            setDocuments((prev) =>
-              prev.map((d) => (d.id === newDoc.id ? { ...d, status: 'READY', chunk_count: 12 } : d))
-            );
-          }, 2000);
-        }, 1500);
-      }, 1000);
+  const filteredDocs = documents.filter((doc) => {
+    const matchesSearch = doc.filename.toLowerCase().includes(searchQuery.toLowerCase());
+    if (filter === 'ALL') return matchesSearch;
+    if (filter === 'READY') return matchesSearch && doc.status === 'READY';
+    if (filter === 'PROCESSING') return matchesSearch && ['QUEUED', 'PARSING', 'CHUNKING', 'EMBEDDING'].includes(doc.status);
+    if (filter === 'FAILED') return matchesSearch && doc.status === 'FAILED';
+    return matchesSearch;
+  });
+
+  const getStatusBadge = (status: DocumentItem['status']) => {
+    switch (status) {
+      case 'READY':
+        return <Badge variant="success" size="sm" icon={<CheckCircle2 className="w-3 h-3" />}>READY</Badge>;
+      case 'FAILED':
+        return <Badge variant="danger" size="sm" icon={<AlertTriangle className="w-3 h-3" />}>FAILED</Badge>;
+      default:
+        return <Badge variant="warning" size="sm" icon={<Clock className="w-3 h-3 animate-spin" />}>{status}</Badge>;
     }
   };
 
-  const handleRetry = (docId: string) => {
-    setDocuments((prev) =>
-      prev.map((d) => (d.id === docId ? { ...d, status: 'QUEUED', error_message: undefined } : d))
-    );
-    setTimeout(() => {
-      setDocuments((prev) =>
-        prev.map((d) => (d.id === docId ? { ...d, status: 'READY', chunk_count: 8 } : d))
-      );
-    }, 2500);
-  };
-
-  const handleDelete = (docId: string) => {
-    setDocuments((prev) => prev.filter((d) => d.id !== docId));
-  };
-
-  const filteredDocs = documents.filter((d) => {
-    const matchesFilter = filter === 'ALL' || d.status === filter;
-    const matchesSearch = d.title.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
-
-  const formatBytes = (bytes: number) => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
-
   return (
-    <div className="min-h-screen bg-[#090d16] text-gray-100 p-8">
-      <div className="max-w-6xl mx-auto space-y-8">
+    <SaaSLayout>
+      <div className="space-y-6 max-w-7xl mx-auto">
         
-        {/* Top Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-800 pb-6">
+        {/* Knowledge Base Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
           <div>
-            <div className="flex items-center gap-2 text-indigo-400 text-sm font-medium mb-1">
-              <Database className="w-4 h-4" /> Knowledge Base Management
+            <div className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-indigo-400" />
+              <h1 className="text-2xl font-extrabold text-white tracking-tight">Default Knowledge Base</h1>
+              <Badge variant="indigo" size="sm">pgvector (HNSW)</Badge>
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-white">Engineering Documentation Base</h1>
-            <p className="text-gray-400 text-sm mt-1">Upload, ingest, and process tenant documents into grounded vector embeddings.</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Production vector storage with structure-aware chunking and automatic metadata extraction.
+            </p>
           </div>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white font-medium rounded-lg shadow-lg cursor-pointer text-sm">
-              <Upload className="w-4 h-4" />
-              {isUploading ? 'Uploading...' : 'Upload Document'}
-              <input type="file" className="hidden" onChange={handleSimulatedUpload} accept=".pdf,.docx,.txt,.md,.html" />
-            </label>
-          </div>
+
+          <Button
+            onClick={() => setIsUploadModalOpen(true)}
+            leftIcon={<UploadCloud className="w-4 h-4" />}
+            variant="primary"
+            size="md"
+          >
+            Upload Document
+          </Button>
         </div>
 
-        {/* Upload Dropzone */}
-        <div className="glass-panel p-8 rounded-xl border border-indigo-500/20 text-center hover:border-indigo-500/40 transition-all cursor-pointer relative overflow-hidden">
-          <div className="max-w-md mx-auto space-y-3">
-            <div className="w-12 h-12 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center justify-center mx-auto">
-              <Upload className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-semibold text-white">Drag & drop files or click to upload</h3>
-            <p className="text-xs text-gray-400">Supported formats: PDF, DOCX, TXT, Markdown, HTML. Maximum file size: 25 MB.</p>
-            <div className="flex items-center justify-center gap-4 text-xs text-gray-500 pt-2">
-              <span className="flex items-center gap-1"><ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Tenant Isolated</span>
-              <span className="flex items-center gap-1"><Layers className="w-3.5 h-3.5 text-indigo-400" /> Structure-Aware Chunking</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Filters & Search */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0">
-            {['ALL', 'READY', 'PROCESSING', 'CHUNKING', 'EMBEDDING', 'FAILED'].map((status) => (
+        {/* Filter Tabs & Search Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+          
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            {(['ALL', 'READY', 'PROCESSING', 'FAILED'] as const).map((tab) => (
               <button
-                key={status}
-                onClick={() => setFilter(status)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  filter === status
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-800/80 text-gray-400 hover:text-white hover:bg-gray-700'
+                key={tab}
+                onClick={() => setFilter(tab)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                  filter === tab
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                 }`}
               >
-                {status}
+                {tab}
               </button>
             ))}
           </div>
 
-          <div className="relative w-full md:w-64">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search documents..."
+          <div className="w-full sm:w-72">
+            <Input
+              placeholder="Search documents by filename..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-gray-900 border border-gray-800 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+              leftIcon={<Search className="w-4 h-4" />}
             />
           </div>
+
         </div>
 
-        {/* Documents Table */}
-        <div className="glass-panel rounded-xl overflow-hidden border border-gray-800">
-          {filteredDocs.length === 0 ? (
-            <div className="p-12 text-center">
-              <FileText className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-              <h3 className="text-base font-medium text-gray-300">Your knowledge base is empty</h3>
-              <p className="text-sm text-gray-500 mt-1 max-w-sm mx-auto">
-                Upload your first PDF, DOCX, Markdown, or TXT document to start asking grounded questions.
-              </p>
-            </div>
-          ) : (
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-900/60 border-b border-gray-800 text-gray-400 font-medium">
-                <tr>
-                  <th className="py-3.5 px-4">Document</th>
-                  <th className="py-3.5 px-4">Size</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4">Chunks</th>
-                  <th className="py-3.5 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800/60">
-                {filteredDocs.map((doc) => (
-                  <tr key={doc.id} className="hover:bg-gray-800/30 transition-colors">
-                    <td className="py-4 px-4 font-medium text-white flex items-center gap-3">
-                      <FileText className="w-5 h-5 text-indigo-400 shrink-0" />
-                      <div>
-                        <div>{doc.title}</div>
-                        {doc.error_message && (
-                          <div className="text-xs text-rose-400 mt-0.5 max-w-md">{doc.error_message}</div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-4 px-4 text-gray-400">{formatBytes(doc.file_size_bytes)}</td>
-                    <td className="py-4 px-4">
-                      {doc.status === 'READY' && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Ready
+        {/* Document List Table */}
+        {isLoading ? (
+          <LoadingState message="Fetching knowledge base documents..." />
+        ) : filteredDocs.length === 0 ? (
+          <EmptyState
+            icon={<FileText className="w-8 h-8" />}
+            title="No Documents Found"
+            description="Upload your first PDF, DOCX, TXT, or Markdown document to begin building your vector index."
+            action={
+              <Button onClick={() => setIsUploadModalOpen(true)} leftIcon={<UploadCloud className="w-4 h-4" />}>
+                Upload First Document
+              </Button>
+            }
+          />
+        ) : (
+          <Card className="p-0 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                    <th className="py-3 px-4">Document</th>
+                    <th className="py-3 px-4">Size</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Chunks</th>
+                    <th className="py-3 px-4">Last Updated</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                  {filteredDocs.map((doc) => (
+                    <tr key={doc.id} className="hover:bg-slate-800/40 transition-colors">
+                      <td className="py-3 px-4 font-medium text-white flex items-center gap-2.5">
+                        <FileText className="w-4 h-4 text-indigo-400 shrink-0" />
+                        <span className="truncate max-w-xs">{doc.filename}</span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-400 font-mono">
+                        {(doc.fileSize / 1024 / 1024).toFixed(2)} MB
+                      </td>
+                      <td className="py-3 px-4">{getStatusBadge(doc.status)}</td>
+                      <td className="py-3 px-4 text-slate-400 font-mono">
+                        <span className="flex items-center gap-1">
+                          <Layers className="w-3.5 h-3.5 text-slate-400" /> {doc.chunkCount}
                         </span>
-                      )}
-                      {['QUEUED', 'PROCESSING', 'PARSING', 'CHUNKING', 'EMBEDDING', 'INDEXING'].includes(doc.status) && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 animate-pulse">
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" /> {doc.status}
-                        </span>
-                      )}
-                      {doc.status === 'FAILED' && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                          <AlertCircle className="w-3.5 h-3.5" /> Failed
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-4 px-4 text-gray-300 font-mono">{doc.chunk_count}</td>
-                    <td className="py-4 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {doc.status === 'FAILED' && (
-                          <button
-                            onClick={() => handleRetry(doc.id)}
-                            className="p-1.5 text-xs text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 rounded transition-colors"
-                            title="Retry Processing"
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDelete(doc.id)}
-                          className="p-1.5 text-xs text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
-                          title="Delete Document"
-                        >
+                      </td>
+                      <td className="py-3 px-4 text-slate-400">
+                        {new Date(doc.updatedAt).toLocaleDateString()}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors">
                           <Trash2 className="w-4 h-4" />
                         </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        {/* Upload Document Modal */}
+        <Modal
+          isOpen={isUploadModalOpen}
+          onClose={() => setIsUploadModalOpen(false)}
+          title="Upload Document to Knowledge Base"
+        >
+          <form onSubmit={handleUploadSubmit} className="space-y-4">
+            <div className="border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded-xl p-6 text-center bg-slate-950/40 transition-colors">
+              <UploadCloud className="w-8 h-8 text-indigo-400 mx-auto mb-2" />
+              <p className="text-xs font-semibold text-white">Drag and drop file here, or click to browse</p>
+              <p className="text-[11px] text-slate-400 mt-1">Supports PDF, DOCX, TXT, Markdown, and HTML (Max 25MB)</p>
+              <input
+                type="file"
+                className="hidden"
+                id="file-upload"
+                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+              />
+              <label
+                htmlFor="file-upload"
+                className="inline-block mt-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg cursor-pointer transition-colors border border-slate-700"
+              >
+                Choose File
+              </label>
+              {uploadFile && (
+                <div className="mt-3 p-2 bg-indigo-500/10 border border-indigo-500/30 rounded text-xs text-indigo-300 font-medium">
+                  Selected: {uploadFile.name} ({(uploadFile.size / 1024 / 1024).toFixed(2)} MB)
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setIsUploadModalOpen(false)} type="button">
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" isLoading={isUploading} disabled={!uploadFile} type="submit">
+                Start Ingestion Job
+              </Button>
+            </div>
+          </form>
+        </Modal>
 
       </div>
-    </div>
+    </SaaSLayout>
   );
 }
