@@ -32,7 +32,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    if (!token) {
+    const isValidJwt = token && token.split('.').length === 3;
+    if (!isValidJwt) {
       setData(getFallbackData());
       setIsLoading(false);
       return;

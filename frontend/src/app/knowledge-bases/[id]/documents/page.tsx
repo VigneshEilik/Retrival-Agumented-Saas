@@ -33,7 +33,8 @@ export default function DocumentManagementPage() {
   const fetchDocuments = () => {
     setIsLoading(true);
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    if (!token) {
+    const isValidJwt = token && token.split('.').length === 3;
+    if (!isValidJwt) {
       setDocuments(getSampleDocuments());
       setIsLoading(false);
       return;
