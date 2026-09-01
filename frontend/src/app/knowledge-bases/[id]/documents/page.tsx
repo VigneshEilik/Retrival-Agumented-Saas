@@ -33,7 +33,10 @@ export default function DocumentManagementPage() {
   const fetchDocuments = () => {
     setIsLoading(true);
     fetch('/api/v1/documents')
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error('Unauthenticated');
+        return res.json();
+      })
       .then((data) => {
         setDocuments(data.documents || getSampleDocuments());
         setIsLoading(false);

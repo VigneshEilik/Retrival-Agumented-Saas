@@ -16,7 +16,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetch('/api/v1/analytics/overview')
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error('Unauthenticated');
+        return res.json();
+      })
       .then((json) => {
         setData(json);
         setIsLoading(false);
