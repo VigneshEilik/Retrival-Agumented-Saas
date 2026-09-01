@@ -42,7 +42,10 @@ export default function DashboardPage() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => {
-        if (!res.ok) throw new Error('Unauthenticated');
+        if (!res.ok) {
+          if (typeof window !== 'undefined') localStorage.removeItem('token');
+          throw new Error('Unauthenticated');
+        }
         return res.json();
       })
       .then((json) => {
