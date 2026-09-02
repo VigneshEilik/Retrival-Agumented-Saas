@@ -15,15 +15,30 @@ export default function ApiKeysPage() {
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const apiKeys = [
+  const [apiKeys, setApiKeys] = useState([
     { id: 'key-1', name: 'Production Backend Service', prefix: 'sk_live_a89f••••', created: '2026-08-10', lastUsed: '2 mins ago', status: 'ACTIVE' },
     { id: 'key-2', name: 'CI/CD Pipeline Integration', prefix: 'sk_live_32f1••••', created: '2026-08-22', lastUsed: '3 days ago', status: 'ACTIVE' },
-  ];
+  ]);
 
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const mockSecret = `sk_live_${Math.random().toString(36).substring(2)}${Math.random().toString(36).substring(2)}`;
+    const rawPrefix = Math.random().toString(36).substring(2, 6);
+    const mockSecret = `sk_live_${rawPrefix}${Math.random().toString(36).substring(2)}`;
     setGeneratedKey(mockSecret);
+
+    const newKeyItem = {
+      id: `key-${Date.now()}`,
+      name: keyName || 'New API Key',
+      prefix: `sk_live_${rawPrefix}••••`,
+      created: new Date().toISOString().split('T')[0],
+      lastUsed: 'Just now',
+      status: 'ACTIVE',
+    };
+    setApiKeys((prev) => [newKeyItem, ...prev]);
+  };
+
+  const handleDeleteKey = (id: string) => {
+    setApiKeys((prev) => prev.filter((k) => k.id !== id));
   };
 
   const handleCopy = () => {
@@ -90,7 +105,11 @@ export default function ApiKeysPage() {
                     <td className="py-3.5 px-4 text-slate-400">{key.created}</td>
                     <td className="py-3.5 px-4 text-slate-400">{key.lastUsed}</td>
                     <td className="py-3.5 px-4 text-right">
-                      <button className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors">
+                      <button
+                        onClick={() => handleDeleteKey(key.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors"
+                        title="Revoke API Key"
+                      >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </td>
