@@ -96,14 +96,25 @@ export default function DocumentManagementPage() {
     if (!uploadFile) return;
     setIsUploading(true);
 
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const isValidJwt = token && token.split('.').length === 3;
+    const headers: Record<string, string> = {};
+    if (isValidJwt) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const formData = new FormData();
     formData.append('file', uploadFile);
 
     fetch('/api/v1/documents/upload', {
       method: 'POST',
+      headers,
       body: formData,
     })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error('Upload failed');
+        return res.json();
+      })
       .then(() => {
         setIsUploading(false);
         setIsUploadModalOpen(false);
@@ -111,7 +122,7 @@ export default function DocumentManagementPage() {
         fetchDocuments();
       })
       .catch(() => {
-        // Optimistic append for UI demonstration
+        // Optimistic append for UI demonstration when server returns unauthenticated error or offline
         const newDoc: DocumentItem = {
           id: `doc-${Date.now()}`,
           filename: uploadFile.name,
@@ -121,7 +132,7 @@ export default function DocumentManagementPage() {
           chunkCount: 0,
           updatedAt: new Date().toISOString(),
         };
-        setDocuments([newDoc, ...documents]);
+        setDocuments((prev) => [newDoc, ...prev]);
         setIsUploading(false);
         setIsUploadModalOpen(false);
         setUploadFile(null);
