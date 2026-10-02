@@ -17,13 +17,13 @@ export const Card: React.FC<CardProps> = ({
 }) => {
   return (
     <div
-      className={`bg-slate-900/80 rounded-xl border border-slate-800 overflow-hidden ${
-        hoverable ? 'hover:border-slate-700 transition-colors duration-150' : ''
+      className={`bg-white rounded-[10px] border border-[#E2E8F0] shadow-[0_1px_3px_rgba(15,23,42,0.06)] overflow-hidden ${
+        hoverable ? 'hover:border-slate-300 transition-colors duration-150' : ''
       } ${className}`}
     >
-      {header && <div className="p-4 md:p-5 border-b border-slate-800/80 bg-slate-900/40">{header}</div>}
+      {header && <div className="p-4 md:p-5 border-b border-[#E2E8F0] bg-slate-50/50 font-semibold text-slate-900">{header}</div>}
       <div className="p-4 md:p-5">{children}</div>
-      {footer && <div className="p-4 border-t border-slate-800/80 bg-slate-900/40 text-xs text-slate-400">{footer}</div>}
+      {footer && <div className="p-4 border-t border-[#E2E8F0] bg-slate-50/50 text-xs text-slate-500">{footer}</div>}
     </div>
   );
 };

@@ -6,24 +6,28 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        background: '#090d16',
+        background: '#F8FAFC',
         surface: {
-          DEFAULT: '#0f172a',
-          card: '#141e33',
-          hover: '#1e293b',
+          DEFAULT: '#FFFFFF',
+          card: '#FFFFFF',
+          hover: '#F1F5F9',
         },
         border: {
-          DEFAULT: '#1e293b',
-          subtle: '#1e293b',
-          highlight: '#334155',
+          DEFAULT: '#E2E8F0',
+          subtle: '#E2E8F0',
+          highlight: '#CBD5E1',
         },
         brand: {
-          50: '#eef2ff',
-          100: '#e0e7ff',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
+          50: '#EFF6FF',
+          100: '#DBEAFE',
+          200: '#BFDBFE',
+          300: '#93C5FD',
+          400: '#60A5FA',
+          500: '#3B82F6',
+          600: '#2563EB',
+          700: '#1D4ED8',
+          800: '#1E40AF',
+          900: '#1E3A8A',
         },
       },
       fontFamily: {
@@ -31,8 +35,7 @@ module.exports = {
         mono: ['JetBrains Mono', 'monospace'],
       },
       boxShadow: {
-        panel: '0 4px 20px -2px rgba(0, 0, 0, 0.5)',
-        glow: '0 0 25px -5px rgba(99, 102, 241, 0.3)',
+        panel: '0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04)',
       },
     },
   },

@@ -9,7 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingState } from '@/components/ui/LoadingState';
-import { Database, UploadCloud, Search, FileText, CheckCircle2, Clock, AlertTriangle, Trash2, RefreshCw, Layers, FileCode } from 'lucide-react';
+import { Database, UploadCloud, Search, FileText, CheckCircle2, Clock, AlertTriangle, Trash2, Layers } from 'lucide-react';
 
 interface DocumentItem {
   id: string;
@@ -122,7 +122,6 @@ export default function DocumentManagementPage() {
         fetchDocuments();
       })
       .catch(() => {
-        // Optimistic append for UI demonstration when server returns unauthenticated error or offline
         const newDoc: DocumentItem = {
           id: `doc-${Date.now()}`,
           filename: uploadFile.name,
@@ -164,14 +163,14 @@ export default function DocumentManagementPage() {
       <div className="space-y-6 max-w-7xl mx-auto">
         
         {/* Knowledge Base Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
           <div>
             <div className="flex items-center gap-2">
-              <Database className="w-5 h-5 text-indigo-400" />
-              <h1 className="text-2xl font-extrabold text-white tracking-tight">Default Knowledge Base</h1>
+              <Database className="w-5 h-5 text-[#2563EB]" />
+              <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Default Knowledge Base</h1>
               <Badge variant="indigo" size="sm">pgvector (HNSW)</Badge>
             </div>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-sm text-[#475569] mt-1">
               Production vector storage with structure-aware chunking and automatic metadata extraction.
             </p>
           </div>
@@ -187,17 +186,17 @@ export default function DocumentManagementPage() {
         </div>
 
         {/* Filter Tabs & Search Bar */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-3 rounded-[8px] border border-slate-200 shadow-sm">
           
           <div className="flex items-center gap-1.5 w-full sm:w-auto">
             {(['ALL', 'READY', 'PROCESSING', 'FAILED'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setFilter(tab)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                className={`px-3 py-1.5 text-xs font-semibold rounded-[6px] transition-colors ${
                   filter === tab
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    ? 'bg-[#2563EB] text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
                 {tab}
@@ -235,7 +234,7 @@ export default function DocumentManagementPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                  <tr className="border-b border-slate-200 bg-slate-50/60 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
                     <th className="py-3 px-4">Document</th>
                     <th className="py-3 px-4">Size</th>
                     <th className="py-3 px-4">Status</th>
@@ -244,27 +243,27 @@ export default function DocumentManagementPage() {
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                <tbody className="divide-y divide-slate-200 text-slate-700">
                   {filteredDocs.map((doc) => (
-                    <tr key={doc.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="py-3 px-4 font-medium text-white flex items-center gap-2.5">
-                        <FileText className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-3 px-4 font-medium text-slate-900 flex items-center gap-2.5">
+                        <FileText className="w-4 h-4 text-[#2563EB] shrink-0" />
                         <span className="truncate max-w-xs">{doc.filename}</span>
                       </td>
-                      <td className="py-3 px-4 text-slate-400 font-mono">
+                      <td className="py-3 px-4 text-slate-500 font-mono">
                         {(doc.fileSize / 1024 / 1024).toFixed(2)} MB
                       </td>
                       <td className="py-3 px-4">{getStatusBadge(doc.status)}</td>
-                      <td className="py-3 px-4 text-slate-400 font-mono">
+                      <td className="py-3 px-4 text-slate-500 font-mono">
                         <span className="flex items-center gap-1">
                           <Layers className="w-3.5 h-3.5 text-slate-400" /> {doc.chunkCount}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-slate-400">
+                      <td className="py-3 px-4 text-slate-500">
                         {new Date(doc.updatedAt).toLocaleDateString()}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors">
+                        <button className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-[4px] transition-colors">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
@@ -283,10 +282,10 @@ export default function DocumentManagementPage() {
           title="Upload Document to Knowledge Base"
         >
           <form onSubmit={handleUploadSubmit} className="space-y-4">
-            <div className="border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded-xl p-6 text-center bg-slate-950/40 transition-colors">
-              <UploadCloud className="w-8 h-8 text-indigo-400 mx-auto mb-2" />
-              <p className="text-xs font-semibold text-white">Drag and drop file here, or click to browse</p>
-              <p className="text-[11px] text-slate-400 mt-1">Supports PDF, DOCX, TXT, Markdown, and HTML (Max 25MB)</p>
+            <div className="border-2 border-dashed border-slate-300 hover:border-[#2563EB] rounded-[10px] p-6 text-center bg-slate-50/60 transition-colors">
+              <UploadCloud className="w-8 h-8 text-[#2563EB] mx-auto mb-2" />
+              <p className="text-xs font-semibold text-slate-900">Drag and drop file here, or click to browse</p>
+              <p className="text-[11px] text-slate-500 mt-1">Supports PDF, DOCX, TXT, Markdown, and HTML (Max 25MB)</p>
               <input
                 type="file"
                 className="hidden"
@@ -295,12 +294,12 @@ export default function DocumentManagementPage() {
               />
               <label
                 htmlFor="file-upload"
-                className="inline-block mt-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg cursor-pointer transition-colors border border-slate-700"
+                className="inline-block mt-3 px-3.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-[6px] cursor-pointer transition-colors border border-slate-300 shadow-sm"
               >
                 Choose File
               </label>
               {uploadFile && (
-                <div className="mt-3 p-2 bg-indigo-500/10 border border-indigo-500/30 rounded text-xs text-indigo-300 font-medium">
+                <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-[#2563EB] font-medium">
                   Selected: {uploadFile.name} ({(uploadFile.size / 1024 / 1024).toFixed(2)} MB)
                 </div>
               )}

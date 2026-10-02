@@ -40,18 +40,18 @@ export const Modal: React.FC<ModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className={`w-full ${maxWidths[maxWidth]} bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden`}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-          <h3 className="text-base font-bold text-white tracking-tight">{title}</h3>
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center p-4">
+      <div className={`w-full ${maxWidths[maxWidth]} bg-white border border-[#E2E8F0] rounded-[10px] shadow-xl overflow-hidden`}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E2E8F0] bg-white">
+          <h3 className="text-base font-semibold text-[#0F172A] tracking-tight">{title}</h3>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1 rounded-[6px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="p-5 text-slate-700">{children}</div>
       </div>
     </div>
   );
