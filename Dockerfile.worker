@@ -1,23 +1,19 @@
-# Standalone Worker Dockerfile
-FROM node:20-alpine AS builder
-
+# Standalone ingestion worker (BullMQ consumer). Same code base as the API.
+FROM node:20-bookworm-slim AS builder
 WORKDIR /app
-
-COPY backend/package*.json ./
+COPY backend/package*.json backend/.npmrc ./
 RUN npm ci
-
 COPY backend/ .
 RUN npm run build
 
-FROM node:20-alpine AS runner
-
+FROM node:20-bookworm-slim AS runner
 WORKDIR /app
-
-ENV NODE_ENV=production
-
-COPY backend/package*.json ./
-RUN npm ci --only=production
-
+ENV NODE_ENV=production \
+    STORAGE_DIR=/data/storage \
+    EMBEDDING_CACHE_DIR=/data/models
+COPY backend/package*.json backend/.npmrc ./
+RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
-
+RUN mkdir -p /data/storage /data/models && chown -R node:node /data /app
+USER node
 CMD ["node", "dist/workers/ingestion/processor.js"]

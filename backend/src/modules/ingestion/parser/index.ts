@@ -14,7 +14,12 @@ const parsers: DocumentParser[] = [
 ];
 
 export function getParserForFile(mimeType: string, extension: string): DocumentParser {
-  const parser = parsers.find((p) => p.canHandle(mimeType, extension));
+  // The file extension is authoritative (it was validated and content-sniffed at upload);
+  // browsers often send generic MIME types (text/plain for .md/.html, octet-stream).
+  const ext = (extension || '').toLowerCase();
+  const parser =
+    parsers.find((p) => ext && p.supportedExtensions.includes(ext)) ||
+    parsers.find((p) => p.canHandle(mimeType, extension));
   if (!parser) {
     throw new Error(`Unsupported document file format: MIME='${mimeType}', Extension='${extension}'`);
   }

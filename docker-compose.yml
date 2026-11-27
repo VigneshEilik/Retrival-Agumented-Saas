@@ -1,50 +1,73 @@
-version: '3.8'
+# Production-style stack: PostgreSQL (pgvector) + Redis + API + ingestion worker + frontend.
+#
+#   cp .env.production.example .env.production   # fill in real secrets
+#   docker compose --env-file .env.production up -d --build
+#
+# Secrets are read from the env file; none are hard-coded here.
+# Put a TLS-terminating reverse proxy (Caddy, nginx, a cloud load balancer) in front of
+# the `frontend` service for HTTPS. Only the frontend port needs to be public.
 
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: rag_postgres
-    restart: always
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: rag_user
-      POSTGRES_PASSWORD: rag_password
-      POSTGRES_DB: rag_saas_db
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-rag_owner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-rag_saas_db}
+      APP_DB_USER: ${APP_DB_USER:-rag_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./backend/scripts/db/docker-init/01-app-role.sh:/docker-entrypoint-initdb.d/01-app-role.sh:ro
+      - ./backend/scripts/db/setup-app-role.sql:/docker-entrypoint-initdb.d/setup-app-role.sql.inc:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rag_user -d rag_saas_db"]
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+    # Not published to the host. Uncomment for local debugging only.
+    # ports: ['5432:5432']
 
   redis:
     image: redis:7-alpine
-    container_name: rag_redis
-    restart: always
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   api:
     build:
       context: ./backend
-      dockerfile: Dockerfile
-    container_name: rag_api
-    restart: always
-    ports:
-      - "4000:4000"
+    restart: unless-stopped
     environment:
+      NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: postgresql://rag_user:rag_password@postgres:5432/rag_saas_db
+      # Least-privilege role for all application queries (RLS enforced)
+      DATABASE_URL: postgresql://${APP_DB_USER:-rag_app}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-rag_saas_db}
+      # Schema owner, used only to apply migrations at startup
+      MIGRATION_DATABASE_URL: postgresql://${POSTGRES_USER:-rag_owner}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-rag_saas_db}
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: super-secret-jwt-key
-      JWT_REFRESH_SECRET: super-secret-refresh-key
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS}
+      # Hops in front of the API: TLS reverse proxy + Next.js server = 2 (per-client rate limits)
+      TRUST_PROXY: ${TRUST_PROXY:-2}
+      GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      EMBEDDING_PROVIDER: local
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-Xenova/all-MiniLM-L6-v2}
+      # The dedicated worker service consumes the queue
+      RUN_INGESTION_WORKER: 'false'
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - storage:/data/storage
+      - models:/data/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,29 +78,38 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    container_name: rag_worker
-    restart: always
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://rag_user:rag_password@postgres:5432/rag_saas_db
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${APP_DB_USER:-rag_app}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-rag_saas_db}
       REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      EMBEDDING_PROVIDER: local
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-Xenova/all-MiniLM-L6-v2}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - storage:/data/storage # must be the SAME volume as the API (uploaded files)
+      - models:/data/models
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      api:
+        condition: service_healthy # the API applies migrations before it reports healthy
 
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-    container_name: rag_frontend
-    restart: always
+      args:
+        API_INTERNAL_URL: http://api:4000
+    restart: unless-stopped
     ports:
-      - "3000:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: http://api:4000
+      - '${FRONTEND_PORT:-3000}:3000'
     depends_on:
       - api
 
 volumes:
   pgdata:
+  redisdata:
+  storage:
+  models:

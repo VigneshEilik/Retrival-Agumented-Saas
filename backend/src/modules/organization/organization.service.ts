@@ -87,6 +87,13 @@ export class OrganizationService {
 
   static async updateMemberRole(organizationId: string, targetUserId: string, newRole: 'ADMIN' | 'MEMBER' | 'VIEWER') {
     return withTenantContext(organizationId, async (client) => {
+      const current = await client.query(
+        `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
+        [organizationId, targetUserId]
+      );
+      if (current.rows.length === 0) throw new Error('Member not found');
+      if (current.rows[0].role === 'OWNER') throw new Error("The organization OWNER's role cannot be changed");
+
       const res = await client.query(
         `UPDATE organization_members SET role = $1 WHERE organization_id = $2 AND user_id = $3 RETURNING id, role`,
         [newRole, organizationId, targetUserId]
@@ -111,7 +118,10 @@ export class OrganizationService {
         `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
         [organizationId, targetUserId]
       );
-      if (ownerCheck.rows.length > 0 && ownerCheck.rows[0].role === 'OWNER') {
+      if (ownerCheck.rows.length === 0) {
+        throw new Error('Member not found');
+      }
+      if (ownerCheck.rows[0].role === 'OWNER') {
         throw new Error('Cannot remove the organization OWNER');
       }
 

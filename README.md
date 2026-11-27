@@ -64,7 +64,8 @@ flowchart LR
     API --> RAG[RAG orchestrator]
     RAG --> HR[Hybrid retriever<br/>vector + keyword]
     HR --> PG
-    RAG --> LLM[LLM provider]
+    RAG --> LLM[Groq LLM<br/>gpt-oss-120b]
+    W --> EMB[Local embeddings<br/>all-MiniLM-L6-v2]
 ```
 
 **How a question gets answered:**
@@ -110,41 +111,44 @@ flowchart LR
 
 ## 🚀 Getting started
 
-### Option A: Docker (quickest)
+### Option A: Docker (production-style stack)
 
-You only need [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+You only need [Docker](https://www.docker.com/products/docker-desktop/).
 
 ```bash
 git clone https://github.com/VigneshEilik/Retrival-Agumented-Saas.git
 cd Retrival-Agumented-Saas
-docker compose up --build
+cp .env.production.example .env.production   # fill in every value (secrets, CORS origin, Groq key)
+docker compose --env-file .env.production up -d --build
 ```
 
-That brings up PostgreSQL (with pgvector), Redis, the API, the ingestion worker and the frontend. Open **http://localhost:3000** and create an account.
+That brings up PostgreSQL (with pgvector), Redis, the API, the ingestion worker and the frontend. On first boot the database creates a least-privilege `rag_app` role and the API applies the migrations. Open **http://localhost:3000** and create an account. For HTTPS, put a reverse proxy in front of the `frontend` service (see the [Deployment Manual](docs/deployment/09-deployment-and-devops-manual.md)).
 
 ### Option B: Run locally (best for development)
 
 **Prerequisites**
 - Node.js **20+**
 - PostgreSQL **16+** (ideally with the [pgvector](https://github.com/pgvector/pgvector) extension)
-- Redis **7+** (optional: without it, the app runs in a fallback mode with no background queue or rate limiting)
+- Redis **7+** (optional: without it, ingestion runs in-process and rate limiting falls back to memory)
 
-**1. Start Postgres and Redis.** Use your own installs, or let Docker run just these two:
+**1. Create the database and the application role.** The app must connect as a normal role, because PostgreSQL superusers bypass Row-Level Security (tenant isolation):
 
 ```bash
-docker compose up -d postgres redis
+createdb rag_saas_db
+psql -d rag_saas_db -v app_role=rag_app -v app_password='choose-a-password' \
+     -v owner_role=postgres -f backend/scripts/db/setup-app-role.sql
 ```
 
 **2. Configure and start the backend**
 
 ```bash
 cd backend
-cp .env.example .env      # then adjust the values (see below)
+cp .env.example .env      # set DATABASE_URL (rag_app), MIGRATION_DATABASE_URL (owner), JWT secrets, GROQ_API_KEY
 npm install
 npm run dev
 ```
 
-Database migrations run automatically on startup. You should see `Server running on port 4000`.
+Migrations are versioned and run automatically on startup (or with `npm run migrate:dev`). You should see `Server running on port 4000`. The first upload or question downloads the local embedding model (~90 MB).
 
 **3. Start the frontend** in a second terminal
 
@@ -164,19 +168,28 @@ Open **http://localhost:3000**. Requests to `/api/v1/*` are proxied to the backe
 |---|---|---|
 | `PORT` | API port | `4000` |
 | `NODE_ENV` | Runtime environment | `development` |
-| `DATABASE_URL` | PostgreSQL connection string | `postgres://postgres:postgrespassword@127.0.0.1:5432/rag_saas_db` |
+| `DATABASE_URL` | Application role (no superuser, no BYPASSRLS) | `postgres://rag_app:CHANGE_ME@127.0.0.1:5432/rag_saas_db` |
+| `MIGRATION_DATABASE_URL` | Schema owner, used only for migrations | `postgres://postgres:CHANGE_ME@127.0.0.1:5432/rag_saas_db` |
+| `CORS_ORIGINS` | Allowed browser origins (required in production) | `http://localhost:3000` |
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
 | `JWT_SECRET` | Access-token signing secret (32+ chars) | *generate one* |
 | `JWT_REFRESH_SECRET` | Refresh-token signing secret | *generate one* |
 | `JWT_EXPIRES_IN` | Access-token lifetime | `15m` |
 | `JWT_REFRESH_EXPIRES_IN` | Refresh-token lifetime | `7d` |
 | `LOG_LEVEL` | Pino log level | `info` |
+| `GROQ_API_KEY` | Groq key for answer generation ([get one](https://console.groq.com/keys)). Empty = mock LLM | `gsk_...` |
+| `GROQ_MODEL` | Groq chat model | `openai/gpt-oss-120b` |
+| `EMBEDDING_PROVIDER` | `local` = real semantic embeddings on your machine (no key needed) | `local` |
+| `EMBEDDING_MODEL` | Local embedding model (downloaded on first run, ~90 MB) | `Xenova/all-MiniLM-L6-v2` |
+| `RUN_INGESTION_WORKER` | Run the ingestion worker inside the API process | `true` |
 
-`frontend/.env`
+Frontend (build time)
 
 | Variable | Description | Example |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | Backend base URL | `http://localhost:4000` |
+| `API_INTERNAL_URL` | Where the Next.js server proxies `/api/v1/*` | `http://localhost:4000` |
+
+The complete reference is in the [Developer and Maintenance Guide](docs/development/11-developer-and-maintenance-guide.md).
 
 > 💡 **Generate strong secrets** with:
 > `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
@@ -185,7 +198,7 @@ Open **http://localhost:3000**. Requests to `/api/v1/*` are proxied to the backe
 
 ## 🔌 API overview
 
-All routes are prefixed with `/api/v1` and, apart from signup/login, expect `Authorization: Bearer <token>`.
+All routes are prefixed with `/api/v1` and, apart from signup/login, expect `Authorization: Bearer <token>` or an API key (`x-api-key: sk_live_…`). Full reference: [API Documentation](docs/api/05-api-documentation.md).
 
 | Area | Endpoints |
 |---|---|
@@ -210,10 +223,12 @@ curl -X POST http://localhost:4000/api/v1/auth/signup \
 
 ```bash
 cd backend
-npm test
+npm test                                                  # 59 tests, runs as the rag_app role
+node scripts/smoke/e2e-smoke.mjs http://localhost:3000    # end-to-end with real models (A–P)
+npm run build && node scripts/smoke/failure-scenarios.mjs # Redis/LLM/DB/embedding outages
 ```
 
-The suite needs PostgreSQL and Redis running. It covers more than the happy path:
+The suite needs PostgreSQL running (Redis optional). It covers more than the happy path:
 
 - **Auth, organisations and API keys:** core SaaS flows
 - **Tenant isolation:** proves one organisation can never read another's data through RLS
@@ -234,7 +249,12 @@ CI runs the full build and test suite on every push and pull request to `main` a
 
 ## 🗺 Roadmap
 
-- [ ] Plug in real LLM and embedding providers (OpenAI / Anthropic / local models). **Mock providers are used today**, so the full pipeline runs without API keys.
+- [x] Real LLM (Groq) and real semantic embeddings (local model, no API key needed)
+- [ ] More LLM providers (OpenAI / Anthropic) behind the same interface
+- [x] Use conversation history for follow-up questions
+- [x] API-key authentication for integrations
+- [ ] Reranking and full-text (BM25) keyword search
+- [ ] OCR for scanned PDFs
 - [ ] S3-compatible object storage provider (local disk is used today)
 - [ ] Website crawling as a knowledge source
 - [ ] Billing integration for subscription tiers
@@ -247,10 +267,11 @@ CI runs the full build and test suite on every push and pull request to `main` a
 | `EADDRINUSE :::3000` or `:::4000` | Something is already on that port. Stop it, or run `npx kill-port 3000 4000` |
 | `failed to connect to the docker API` | Docker Desktop isn't running. Start it and try again |
 | `Redis server unavailable … fallback mode` | Redis isn't reachable. Start it with `docker compose up -d redis` |
-| `vector extension not enabled` | Your Postgres lacks pgvector. The app still runs, but vector search is disabled. Use the `pgvector/pgvector` Docker image to enable it |
+| `vector extension not enabled` | Your Postgres lacks pgvector. The app still works: similarity is computed in Node instead, which is fine for small and medium knowledge bases. For large ones, use the `pgvector/pgvector` Docker image |
+| Tenant isolation not enforced locally | Don't connect as the `postgres` superuser: superusers bypass Row-Level Security. Use a normal database role in `DATABASE_URL` |
 | Login works via curl but not in the browser | Make sure the backend is running on port 4000, because the frontend proxies to it |
 
-For backup and restore procedures, see the [disaster recovery runbook](docs/disaster_recovery.md).
+For backup, restore and rollback procedures, see the [Deployment and DevOps Manual](docs/deployment/09-deployment-and-devops-manual.md). The complete documentation set (12 documents, also as PDFs) is indexed in [docs/README.md](docs/README.md).
 
 ## 🤝 Contributing
 

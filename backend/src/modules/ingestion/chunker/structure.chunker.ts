@@ -80,6 +80,12 @@ export class StructureAwareChunker implements ChunkerEngine {
       return result;
     }
 
+    // Guard against invalid configuration (overlap must be smaller than the chunk).
+    const overlap = Math.max(0, Math.min(chunkOverlap, chunkSize - 1));
+    // A break point must leave a chunk longer than the overlap, otherwise the next window
+    // (which starts `overlap` characters before the break) would not move forward.
+    const minAdvance = Math.max(minChunkSize, overlap + 1);
+
     let start = 0;
     while (start < text.length) {
       let end = start + chunkSize;
@@ -87,16 +93,16 @@ export class StructureAwareChunker implements ChunkerEngine {
       if (end >= text.length) {
         end = text.length;
       } else {
-        // Try to break at paragraph boundary, sentence boundary, or whitespace
+        // Prefer a paragraph boundary, then a sentence boundary, then whitespace; else hard cut.
         const paragraphBreak = text.lastIndexOf('\n\n', end);
         const sentenceBreak = text.lastIndexOf('. ', end);
         const spaceBreak = text.lastIndexOf(' ', end);
 
-        if (paragraphBreak > start + minChunkSize && paragraphBreak <= end) {
+        if (paragraphBreak > start + minAdvance) {
           end = paragraphBreak;
-        } else if (sentenceBreak > start + minChunkSize && sentenceBreak <= end) {
+        } else if (sentenceBreak > start + minAdvance) {
           end = sentenceBreak + 1;
-        } else if (spaceBreak > start + minChunkSize && spaceBreak <= end) {
+        } else if (spaceBreak > start + minAdvance) {
           end = spaceBreak;
         }
       }
@@ -108,9 +114,10 @@ export class StructureAwareChunker implements ChunkerEngine {
 
       if (end >= text.length) break;
 
-      // Slide start position back by chunkOverlap
-      start = end - chunkOverlap;
-      if (start <= 0 || start >= text.length) break;
+      // Next window starts `overlap` characters before this chunk's end.
+      // end - start > overlap is guaranteed above, so `start` strictly increases (termination).
+      const next = end - overlap;
+      start = next > start ? next : end;
     }
 
     return result;

@@ -1,87 +1,105 @@
+import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import { Redis } from 'ioredis';
 import { logger } from '../utils/logger';
+import { config } from '../config';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 let redisClient: Redis | null = null;
-
-try {
-  redisClient = new Redis(redisUrl, {
-    maxRetriesPerRequest: 1,
-    enableOfflineQueue: false,
-    connectTimeout: 500,
-  });
+if (config.rateLimitEnabled) {
+  redisClient = new Redis(config.redisUrl, { maxRetriesPerRequest: 1, enableOfflineQueue: false, connectTimeout: 1000 });
   redisClient.on('error', () => {
-    // Graceful silent fallback if Redis is unavailable locally
+    /* fall back to in-memory limiting while Redis is unavailable */
   });
-} catch (e) {
-  redisClient = null;
 }
 
 export interface RateLimitOptions {
-  windowMs?: number; // Time window in ms (default 60000 = 1 min)
-  maxRequests?: number; // Max requests allowed per window
-  scope?: 'ip' | 'user' | 'org' | 'api_key' | 'endpoint';
+  name: string; // logical limiter name, part of the key
+  windowMs?: number;
+  maxRequests?: number;
+  scope?: 'ip' | 'org' | 'principal';
 }
 
-export function rateLimiter(options: RateLimitOptions = {}) {
-  const windowMs = options.windowMs || 60000;
-  const maxRequests = options.maxRequests || 60;
-  const scope = options.scope || 'ip';
+// In-memory fixed-window fallback so limits still apply (per instance) when Redis is down.
+const memoryBuckets = new Map<string, { count: number; resetAt: number }>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of memoryBuckets) if (bucket.resetAt <= now) memoryBuckets.delete(key);
+}, 60_000).unref();
+
+function memoryHit(key: string, windowMs: number): number {
+  const now = Date.now();
+  const bucket = memoryBuckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    memoryBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return 1;
+  }
+  bucket.count += 1;
+  return bucket.count;
+}
+
+async function redisHit(key: string, windowMs: number): Promise<number> {
+  // Sliding window log: O(log n) per request with a sorted set, n bounded by maxRequests.
+  const now = Date.now();
+  const results = await redisClient!
+    .multi()
+    .zremrangebyscore(key, 0, now - windowMs)
+    .zadd(key, now, `${now}-${Math.random()}`)
+    .zcard(key)
+    .pexpire(key, windowMs)
+    .exec();
+  return (results?.[2]?.[1] as number) || 1;
+}
+
+function identify(req: Request, scope: RateLimitOptions['scope']): string {
+  if (scope === 'org' && req.user?.organizationId) return `org:${req.user.organizationId}`;
+  if (scope === 'principal' && req.user) {
+    // API keys are limited per key, users per user. Never put raw key material in Redis keys.
+    if (req.user.apiKeyId) return `key:${req.user.apiKeyId}`;
+    if (req.user.userId) return `user:${req.user.userId}`;
+  }
+  return `ip:${crypto.createHash('sha256').update(req.ip || 'unknown').digest('hex').slice(0, 16)}`;
+}
+
+/**
+ * Rate limiter middleware. Uses Redis when available (shared across instances),
+ * otherwise an in-memory window (per instance). Responds 429 with Retry-After.
+ */
+export function rateLimiter(options: RateLimitOptions) {
+  const windowMs = options.windowMs ?? 60_000;
+  const maxRequests = options.maxRequests ?? 60;
+  const scope = options.scope ?? 'ip';
 
   return async (req: Request, res: Response, next: NextFunction) => {
-    // Generate key identifier based on scope
-    let identifier = req.ip || '127.0.0.1';
-    if (scope === 'user' && req.user) {
-      identifier = `user:${req.user.userId}`;
-    } else if (scope === 'org' && req.user) {
-      identifier = `org:${req.user.organizationId}`;
-    } else if (scope === 'api_key' && req.headers['x-api-key']) {
-      identifier = `apikey:${req.headers['x-api-key']}`;
-    } else if (scope === 'endpoint') {
-      identifier = `endpoint:${req.path}:${req.user?.organizationId || req.ip}`;
-    }
+    if (!config.rateLimitEnabled) return next();
 
-    const key = `ratelimit:${scope}:${identifier}`;
-
+    const key = `ratelimit:${options.name}:${identify(req, scope)}`;
+    let count: number;
     try {
-      if (redisClient && redisClient.status === 'ready') {
-        const now = Date.now();
-        const clearBefore = now - windowMs;
-
-        const multi = redisClient.multi();
-        multi.zremrangebyscore(key, 0, clearBefore);
-        multi.zadd(key, now, `${now}-${Math.random()}`);
-        multi.zcard(key);
-        multi.pexpire(key, windowMs);
-
-        const results = await multi.exec();
-        const requestCount = (results?.[2]?.[1] as number) || 1;
-        const remaining = Math.max(0, maxRequests - requestCount);
-
-        res.setHeader('X-RateLimit-Limit', maxRequests);
-        res.setHeader('X-RateLimit-Remaining', remaining);
-        res.setHeader('X-RateLimit-Reset', Math.ceil((now + windowMs) / 1000));
-
-        if (requestCount > maxRequests) {
-          logger.warn({ key, requestCount, maxRequests }, 'Rate limit threshold exceeded');
-          return res.status(429).json({
-            error: {
-              code: 'RATE_LIMITED',
-              message: `Too many requests. Limit is ${maxRequests} requests per minute.`,
-              scope,
-            },
-          });
-        }
-      } else {
-        // Fallback header set if Redis offline
-        res.setHeader('X-RateLimit-Limit', maxRequests);
-        res.setHeader('X-RateLimit-Remaining', maxRequests - 1);
-      }
+      count = redisClient && redisClient.status === 'ready' ? await redisHit(key, windowMs) : memoryHit(key, windowMs);
     } catch (error) {
-      logger.error({ error }, 'Rate limiter Redis execution warning');
+      logger.warn({ err: (error as Error).message }, 'Rate limiter Redis error; using in-memory window');
+      count = memoryHit(key, windowMs);
     }
 
+    res.setHeader('X-RateLimit-Limit', maxRequests);
+    res.setHeader('X-RateLimit-Remaining', Math.max(0, maxRequests - count));
+
+    if (count > maxRequests) {
+      res.setHeader('Retry-After', Math.ceil(windowMs / 1000));
+      logger.warn({ limiter: options.name, scope }, 'Rate limit exceeded');
+      return res.status(429).json({
+        error: {
+          code: 'RATE_LIMITED',
+          message: `Too many requests. Limit is ${maxRequests} per ${Math.round(windowMs / 1000)} seconds.`,
+          correlationId: req.correlationId,
+        },
+      });
+    }
     return next();
   };
+}
+
+/** Closes the limiter's Redis connection (used by tests and graceful shutdown). */
+export async function closeRateLimiter() {
+  if (redisClient) redisClient.disconnect();
 }

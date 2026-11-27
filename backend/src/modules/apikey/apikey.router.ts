@@ -1,40 +1,33 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { ApiKeyService } from './apikey.service';
-import { authenticate, requireRole } from '../../middleware/auth';
+import { authenticate, requireRole, requireUser } from '../../middleware/auth';
+import { validate, uuidParam, trimmedString } from '../../middleware/validate';
+import { notFound } from '../../middleware/error_handler';
 
 const router = Router();
-router.use(authenticate);
+// Key management is for signed-in admins only: an API key can never mint or revoke keys.
+router.use(authenticate, requireUser);
 
-router.post('/', requireRole(['OWNER', 'ADMIN']), async (req: Request, res: Response) => {
-  try {
-    const { name, expiresInDays } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Name is required' } });
-    }
-    const data = await ApiKeyService.createApiKey(req.user!.organizationId, name, expiresInDays);
-    return res.status(201).json({ data });
-  } catch (error: any) {
-    return res.status(400).json({ error: { code: 'API_KEY_CREATE_FAILED', message: error.message } });
-  }
+const createKeySchema = z.object({
+  name: trimmedString(1, 100, 'Name'),
+  expiresInDays: z.coerce.number().int().min(1).max(3650).optional(),
 });
 
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    const keys = await ApiKeyService.listApiKeys(req.user!.organizationId);
-    return res.status(200).json({ data: { apiKeys: keys } });
-  } catch (error: any) {
-    return res.status(400).json({ error: { code: 'API_KEY_FETCH_FAILED', message: error.message } });
-  }
+router.post('/', requireRole(['OWNER', 'ADMIN']), validate({ body: createKeySchema }), async (req: Request, res: Response) => {
+  const data = await ApiKeyService.createApiKey(req.user!.organizationId, req.body.name, req.body.expiresInDays);
+  res.status(201).json({ data });
 });
 
-router.delete('/:id', requireRole(['OWNER', 'ADMIN']), async (req: Request, res: Response) => {
-  try {
-    const apiKeyId = req.params.id as string;
-    const data = await ApiKeyService.revokeApiKey(req.user!.organizationId, apiKeyId);
-    return res.status(200).json({ data });
-  } catch (error: any) {
-    return res.status(400).json({ error: { code: 'API_KEY_REVOKE_FAILED', message: error.message } });
-  }
+router.get('/', requireRole(['OWNER', 'ADMIN']), async (req: Request, res: Response) => {
+  const keys = await ApiKeyService.listApiKeys(req.user!.organizationId);
+  res.status(200).json({ data: { apiKeys: keys } });
+});
+
+router.delete('/:id', requireRole(['OWNER', 'ADMIN']), validate({ params: uuidParam('id') }), async (req: Request, res: Response) => {
+  const data = await ApiKeyService.revokeApiKey(req.user!.organizationId, req.params.id as string);
+  if (!data) throw notFound('API key not found or already revoked', 'API_KEY_NOT_FOUND');
+  res.status(200).json({ data });
 });
 
 export const apiKeyRouter = router;

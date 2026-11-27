@@ -3,11 +3,11 @@ import { AgentOrchestrator } from './orchestrator/agent.orchestrator';
 import { ToolRegistry } from './tools/tool.registry';
 import { RAGSearchTool } from './tools/rag_search.tool';
 import { CalculatorTool } from './tools/calculator.tool';
-import { authenticate } from '../../middleware/auth';
+import { authenticate, requireUser } from '../../middleware/auth';
 import { withTenantContext } from '../../db';
 
 const router = Router();
-router.use(authenticate);
+router.use(authenticate, requireUser);
 
 const registry = new ToolRegistry();
 registry.registerTool(new RAGSearchTool());
@@ -24,17 +24,18 @@ router.post('/agent/runs', async (req: Request, res: Response) => {
     const orchestrator = new AgentOrchestrator();
     const result = await orchestrator.run({
       organizationId: req.user!.organizationId,
-      userId: req.user!.userId,
+      userId: req.user!.userId!,
       userRole: req.user!.role,
       knowledgeBaseId,
       conversationId,
       prompt,
-      maxSteps,
+      // Hard cap (the cost guard also limits agent steps)
+      maxSteps: Math.min(Math.max(parseInt(maxSteps, 10) || 5, 1), 5),
     });
 
     return res.status(200).json({ data: result });
   } catch (error: any) {
-    return res.status(500).json({ error: { code: 'AGENT_RUN_FAILED', message: error.message } });
+    throw error; // central handler: logged, never echoed in production
   }
 });
 
@@ -74,7 +75,8 @@ router.get('/agent/runs/:id', async (req: Request, res: Response) => {
 
     return res.status(200).json({ data });
   } catch (error: any) {
-    return res.status(404).json({ error: { code: 'RUN_NOT_FOUND', message: error.message } });
+    if (/not found/i.test(error?.message || '')) return res.status(404).json({ error: { code: 'RUN_NOT_FOUND', message: 'Agent run not found' } });
+    throw error;
   }
 });
 
@@ -91,7 +93,7 @@ router.get('/agent/tools', async (req: Request, res: Response) => {
     }));
     return res.status(200).json({ data: { tools: data } });
   } catch (error: any) {
-    return res.status(400).json({ error: { code: 'TOOLS_FETCH_FAILED', message: error.message } });
+    throw error;
   }
 });
 

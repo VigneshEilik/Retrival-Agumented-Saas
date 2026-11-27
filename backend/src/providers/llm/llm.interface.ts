@@ -11,6 +11,8 @@ export interface LLMStreamResult {
 export interface LLMOptions {
   temperature?: number;
   maxTokens?: number;
+  /** Cancels the request (client disconnect or timeout). */
+  signal?: AbortSignal;
 }
 
 export interface LLMProvider {

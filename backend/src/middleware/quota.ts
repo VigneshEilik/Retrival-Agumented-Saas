@@ -50,7 +50,11 @@ export function checkQuota(metric: 'knowledge_bases' | 'documents' | 'agent_runs
 
       return next();
     } catch (error: any) {
-      return res.status(403).json({ error: { code: 'QUOTA_EXCEEDED', message: error.message } });
+      // Only an actual limit breach is a 403; database errors go to the central error handler.
+      if (/limit reached|quota reached/i.test(error?.message || '')) {
+        return res.status(403).json({ error: { code: 'QUOTA_EXCEEDED', message: error.message, correlationId: req.correlationId } });
+      }
+      return next(error);
     }
   };
 }

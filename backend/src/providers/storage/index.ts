@@ -1,7 +1,9 @@
 import { StorageProvider } from './storage.interface';
 import { LocalStorageProvider } from './local.storage';
+import { config } from '../../config';
 
-let currentStorageProvider: StorageProvider = new LocalStorageProvider();
+// STORAGE_DIR should point at a persistent volume in production (defaults to ./storage_data).
+let currentStorageProvider: StorageProvider = new LocalStorageProvider(config.storageDir || undefined);
 
 export function getStorageProvider(): StorageProvider {
   return currentStorageProvider;

@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio';
+import { MarkdownParser } from './markdown.parser';
 import TurndownService from 'turndown';
 import { DocumentParser, ParsedDocument } from './parser.interface';
 
@@ -23,15 +24,15 @@ export class HTMLParser implements DocumentParser {
     const pageTitle = $('title').text().trim() || filename;
     const bodyHtml = $('body').html() || $.html();
 
-    const turndownService = new TurndownService();
+    const turndownService = new TurndownService({ headingStyle: 'atx' });
     const markdownText = turndownService.turndown(bodyHtml);
 
+    // Reuse the Markdown parser so <h1>-<h6> headings become sections (section-aware chunks & citations).
+    const parsed = await new MarkdownParser().parse(Buffer.from(markdownText, 'utf8'), filename);
     return {
+      ...parsed,
       title: pageTitle,
-      text: markdownText,
-      metadata: {
-        rawHtmlLength: rawHtml.length,
-      },
+      metadata: { ...(parsed.metadata || {}), rawHtmlLength: rawHtml.length },
     };
   }
 }

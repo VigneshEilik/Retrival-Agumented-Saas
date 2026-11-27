@@ -16,9 +16,13 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   private resolvePath(key: string): string {
-    // Prevent path traversal attacks
-    const sanitizedKey = path.normalize(key).replace(/^(\.\.[\/\\])+/, '');
-    return path.join(this.baseDir, sanitizedKey);
+    // Path traversal protection: the resolved path must stay inside baseDir.
+    const resolved = path.resolve(this.baseDir, key);
+    const root = path.resolve(this.baseDir) + path.sep;
+    if (!resolved.startsWith(root)) {
+      throw new Error('Invalid storage key');
+    }
+    return resolved;
   }
 
   async uploadFile(key: string, body: Buffer, mimeType: string): Promise<{ key: string; checksum: string; sizeBytes: number }> {

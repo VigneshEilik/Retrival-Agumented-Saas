@@ -3,7 +3,7 @@ import React from 'react';
 
 export const metadata = {
   title: 'RAGOS — Enterprise Multi-Tenant AI Platform',
-  description: 'Production Multi-Tenant RAG Chatbot & AI Agent SaaS Platform',
+  description: 'Multi-tenant RAG knowledge base and grounded chat platform',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,5 +1,7 @@
+import path from 'path';
 import { Worker, Job, Queue } from 'bullmq';
 import { Redis } from 'ioredis';
+import { INGESTION_QUEUE_NAME } from './queue';
 import { withTenantContext, pool } from '../../db';
 import { getStorageProvider } from '../../providers/storage';
 import { getParserForFile } from '../../modules/ingestion/parser';
@@ -7,6 +9,7 @@ import { StructureAwareChunker } from '../../modules/ingestion/chunker/structure
 import { getEmbeddingProvider } from '../../providers/embedding';
 import { DocumentService } from '../../modules/document/document.service';
 import { logger } from '../../utils/logger';
+import { validateConfig } from '../../config';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
@@ -23,7 +26,7 @@ try {
 export function isPermanentError(error: any): boolean {
   const msg = (error?.message || '').toLowerCase();
   return (
-    msg.includes('unsupported document format') ||
+    msg.includes('unsupported document') ||
     msg.includes('corrupted payload') ||
     msg.includes('file not found') ||
     msg.includes('validation_error')
@@ -35,6 +38,10 @@ export async function processIngestionJob(jobOrData: any): Promise<{ chunkCount:
   const { jobId = `job_${Date.now()}`, documentId, documentVersionId, organizationId } = data;
 
   logger.info({ jobId, documentId, documentVersionId, organizationId }, 'Processing ingestion job');
+
+  // Commit PROCESSING immediately so clients polling the status can see it; the work below
+  // runs in its own transaction (rolled back as a whole on failure).
+  await DocumentService.updateVersionStatus(organizationId, documentVersionId, 'PROCESSING').catch(() => {});
 
   return withTenantContext(organizationId, async (client) => {
     // 1. Fetch Version Details
@@ -59,10 +66,10 @@ export async function processIngestionJob(jobOrData: any): Promise<{ chunkCount:
     const fileBuffer = await storage.getFile(version.file_key);
 
     // 3. Parse Document Content
-    let ext = (version.file_type || '.txt').toLowerCase();
-    if (!ext.startsWith('.')) ext = `.${ext}`;
-    const mimeType = ext === '.pdf' ? 'application/pdf' : ext === '.docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'text/plain';
-    
+    // file_type holds the uploaded MIME type; the real extension lives on the storage key (".../v1.pdf").
+    const ext = (path.extname(version.file_key || '') || '.txt').toLowerCase();
+    const mimeType = (version.file_type || 'application/octet-stream').toLowerCase();
+
     const parser = getParserForFile(mimeType, ext);
     const parsedDoc = await parser.parse(fileBuffer, version.file_key);
 
@@ -77,10 +84,17 @@ export async function processIngestionJob(jobOrData: any): Promise<{ chunkCount:
     // Delete pre-existing chunks for this version to ensure strict idempotency on re-runs
     await client.query(`DELETE FROM document_chunks WHERE document_version_id = $1 AND organization_id = $2`, [version.id, organizationId]);
 
+    // Embed in small batches: much faster than one call per chunk with a local model.
+    const EMBED_BATCH_SIZE = 16;
+    const embeddings: number[][] = [];
+    for (let start = 0; start < chunks.length; start += EMBED_BATCH_SIZE) {
+      const batch = chunks.slice(start, start + EMBED_BATCH_SIZE).map((c) => c.content);
+      embeddings.push(...(await embeddingProvider.embedBatch(batch)));
+    }
+
     for (let i = 0; i < chunks.length; i++) {
       const c = chunks[i];
-      const embedding = await embeddingProvider.embedQuery(c.content);
-      const vectorStr = `[${embedding.join(',')}]`;
+      const vectorStr = `[${embeddings[i].join(',')}]`;
       const tokenCount = Math.ceil(c.content.length / 4);
 
       await client.query(
@@ -130,8 +144,13 @@ export function createIngestionWorker(): Worker | null {
       connectTimeout: 1000,
     });
 
+    connection.on('error', () => {
+      /* connection problems are logged by the queue module */
+    });
+
+    // Must match the queue name the API publishes to (see queue.ts).
     const worker = new Worker(
-      'ingestion-jobs',
+      INGESTION_QUEUE_NAME,
       async (job: Job) => {
         try {
           return await processIngestionJob(job);
@@ -140,7 +159,7 @@ export function createIngestionWorker(): Worker | null {
 
           if (isPermanentError(error)) {
             logger.warn({ jobId: job.id, error: error.message }, 'Routing permanent failure to DLQ');
-            await DocumentService.updateVersionStatus(job.data.documentId, 'FAILED', error.message);
+            await DocumentService.updateVersionStatus(job.data.organizationId, job.data.documentVersionId, 'FAILED', error.message);
             if (dlqQueue) {
               await dlqQueue.add('dead-letter-job', {
                 originalJobData: job.data,
@@ -168,6 +187,8 @@ export function createIngestionWorker(): Worker | null {
     worker.on('failed', async (job, err) => {
       if (job && job.attemptsMade >= (job.opts.attempts || 3)) {
         logger.error({ jobId: job.id, attempts: job.attemptsMade, error: err.message }, 'Job exhausted max retries; sending to DLQ');
+        // Surface the failure in the UI instead of leaving the document stuck in QUEUED.
+        await DocumentService.updateVersionStatus(job.data.organizationId, job.data.documentVersionId, 'FAILED', err.message).catch(() => {});
         if (dlqQueue) {
           await dlqQueue.add('dead-letter-job', {
             originalJobData: job.data,
@@ -179,23 +200,24 @@ export function createIngestionWorker(): Worker | null {
       }
     });
 
-    const shutdown = async (signal: string) => {
-      logger.info({ signal }, 'Worker received shutdown signal. Gracefully stopping...');
-      await worker.close();
-      process.exit(0);
-    };
-
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
-
     return worker;
   } catch (error) {
-    logger.warn('Redis offline; worker initialization skipped for test environment');
+    logger.warn('Redis offline; worker initialization skipped');
     return null;
   }
 }
 
+// Standalone worker process (Dockerfile.worker / `npm run start:worker`).
 if (require.main === module) {
+  validateConfig();
   logger.info('Starting standalone Ingestion Worker process');
-  createIngestionWorker();
+  const worker = createIngestionWorker();
+  // Finish the in-flight job before exiting; BullMQ re-queues anything interrupted.
+  const shutdown = async (signal: string) => {
+    logger.info({ signal }, 'Worker received shutdown signal. Gracefully stopping...');
+    await worker?.close();
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }

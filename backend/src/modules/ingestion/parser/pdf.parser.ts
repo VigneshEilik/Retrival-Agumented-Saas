@@ -1,7 +1,13 @@
-const pdfParse = require('pdf-parse');
+import { PDFParse } from 'pdf-parse';
 import { DocumentParser, ParsedDocument, ParsedDocumentPage } from './parser.interface';
 import { logger } from '../../../utils/logger';
 
+/**
+ * PDF text extraction with per-page output (pdf-parse v2 / pdf.js).
+ * Page numbers flow into chunk metadata and from there into citations.
+ * Scanned (image-only) PDFs yield no text: OCR is not part of this release, so
+ * those fail with a clear message instead of producing an empty index.
+ */
 export class PDFParser implements DocumentParser {
   supportedMimeTypes = ['application/pdf'];
   supportedExtensions = ['.pdf'];
@@ -14,45 +20,29 @@ export class PDFParser implements DocumentParser {
   }
 
   async parse(fileBuffer: Buffer, filename: string): Promise<ParsedDocument> {
-    const pages: ParsedDocumentPage[] = [];
-
-    // Custom pager callback to track text per page
-    const pageRender = (pageData: any) => {
-      return pageData.getTextContent().then((textContent: any) => {
-        let lastY, text = '';
-        for (let item of textContent.items) {
-          if (lastY == item.transform[5] || !lastY) {
-            text += item.str;
-          } else {
-            text += '\n' + item.str;
-          }
-          lastY = item.transform[5];
-        }
-
-        pages.push({
-          pageNumber: pages.length + 1,
-          text: text.trim(),
-        });
-
-        return text;
-      });
-    };
-
+    // pdf.js takes ownership of the buffer it is given, so pass a copy.
+    const parser = new PDFParse({ data: new Uint8Array(fileBuffer) });
     try {
-      const data = await pdfParse(fileBuffer, { pagerender: pageRender });
+      const result = await parser.getText();
+      const pages: ParsedDocumentPage[] = result.pages
+        .map((p) => ({ pageNumber: p.num, text: (p.text || '').trim() }))
+        .filter((p) => p.text.length > 0);
+
+      if (pages.length === 0) {
+        throw new Error('No extractable text found (the PDF may be scanned images; OCR is not supported)');
+      }
+
       return {
         title: filename,
-        text: data.text,
-        metadata: {
-          numpages: data.numpages,
-          info: data.info,
-          version: data.version,
-        },
+        text: pages.map((p) => p.text).join('\n\n'),
+        metadata: { numpages: result.total },
         pages,
       };
     } catch (error) {
-      logger.error({ error, filename }, 'Failed to parse PDF document');
-      throw new Error(`PDF parsing failed for ${filename}: ${(error as Error).message}`);
+      logger.error({ err: (error as Error).message, filename }, 'Failed to parse PDF document');
+      throw new Error(`PDF parsing failed: ${(error as Error).message}`);
+    } finally {
+      await parser.destroy().catch(() => {});
     }
   }
 }

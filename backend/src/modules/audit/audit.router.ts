@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { withTenantContext } from '../../db';
-import { authenticate } from '../../middleware/auth';
+import { authenticate, requireRole } from '../../middleware/auth';
 
 const router = Router();
-router.use(authenticate);
+router.use(authenticate, requireRole(['OWNER', 'ADMIN']));
 
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -40,7 +40,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     return res.status(200).json({ data });
   } catch (error: any) {
-    return res.status(400).json({ error: { code: 'AUDIT_LOG_FETCH_FAILED', message: error.message } });
+    throw error; // central handler: logged, never echoed in production
   }
 });
 

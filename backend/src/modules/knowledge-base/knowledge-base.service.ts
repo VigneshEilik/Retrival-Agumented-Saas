@@ -1,4 +1,8 @@
 import { withTenantContext } from '../../db';
+import { config } from '../../config';
+import { notFound } from '../../middleware/error_handler';
+import { getStorageProvider } from '../../providers/storage';
+import { logger } from '../../utils/logger';
 
 export class KnowledgeBaseService {
   static async createKnowledgeBase(
@@ -10,10 +14,10 @@ export class KnowledgeBaseService {
   ) {
     return withTenantContext(organizationId, async (client) => {
       const res = await client.query(
-        `INSERT INTO knowledge_bases (organization_id, name, description, chunk_size, chunk_overlap)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO knowledge_bases (organization_id, name, description, chunk_size, chunk_overlap, embedding_model)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, name, description, chunk_size, chunk_overlap, created_at`,
-        [organizationId, name, description, chunkSize, chunkOverlap]
+        [organizationId, name, description, chunkSize, chunkOverlap, config.embeddingModel]
       );
 
       await client.query(
@@ -52,7 +56,7 @@ export class KnowledgeBaseService {
       );
 
       if (res.rows.length === 0) {
-        throw new Error('Knowledge Base not found');
+        throw notFound('Knowledge base not found', 'KB_NOT_FOUND');
       }
 
       return res.rows[0];
@@ -60,14 +64,24 @@ export class KnowledgeBaseService {
   }
 
   static async deleteKnowledgeBase(organizationId: string, knowledgeBaseId: string) {
-    return withTenantContext(organizationId, async (client) => {
+    const fileKeys: string[] = [];
+    const result = await withTenantContext(organizationId, async (client) => {
+      // Collect stored files first: documents, versions and chunks cascade-delete with the KB.
+      const files = await client.query(
+        `SELECT dv.file_key FROM document_versions dv
+           JOIN documents d ON d.id = dv.document_id
+          WHERE d.knowledge_base_id = $1 AND d.organization_id = $2`,
+        [knowledgeBaseId, organizationId]
+      );
+      fileKeys.push(...files.rows.map((r: any) => r.file_key));
+
       const res = await client.query(
         `DELETE FROM knowledge_bases WHERE id = $1 AND organization_id = $2 RETURNING id`,
         [knowledgeBaseId, organizationId]
       );
 
       if (res.rows.length === 0) {
-        throw new Error('Knowledge Base not found');
+        throw notFound('Knowledge base not found', 'KB_NOT_FOUND');
       }
 
       await client.query(
@@ -76,7 +90,14 @@ export class KnowledgeBaseService {
         [organizationId, knowledgeBaseId]
       );
 
-      return { success: true };
+      return { success: true, deletedDocuments: fileKeys.length };
     });
+
+    // Remove stored files only after the database transaction committed.
+    const storage = getStorageProvider();
+    for (const key of fileKeys) {
+      await storage.deleteFile(key).catch(() => logger.warn({ key }, 'Stored file already missing during KB deletion'));
+    }
+    return result;
   }
 }

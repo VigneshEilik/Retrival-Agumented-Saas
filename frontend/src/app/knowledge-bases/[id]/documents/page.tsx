@@ -1,7 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { SaaSLayout } from '@/components/SaaSLayout';
+import { apiFetch, apiJson, hasRealSession, isUuid, getOrCreateDefaultKnowledgeBase, KnowledgeBase } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
@@ -9,19 +12,38 @@ import { Modal } from '@/components/ui/Modal';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingState } from '@/components/ui/LoadingState';
-import { Database, UploadCloud, Search, FileText, CheckCircle2, Clock, AlertTriangle, Trash2, Layers } from 'lucide-react';
+import { Database, UploadCloud, Search, FileText, CheckCircle2, Clock, AlertTriangle, Trash2, Layers, RotateCw } from 'lucide-react';
 
 interface DocumentItem {
   id: string;
   filename: string;
   fileSize: number;
   mimeType: string;
-  status: 'QUEUED' | 'PARSING' | 'CHUNKING' | 'EMBEDDING' | 'READY' | 'FAILED';
+  status: 'QUEUED' | 'PROCESSING' | 'READY' | 'FAILED';
+  errorMessage?: string | null;
   chunkCount: number;
   updatedAt: string;
 }
 
+const PROCESSING_STATES = ['QUEUED', 'PROCESSING'];
+
+// Maps a backend document row (snake_case) to the UI model.
+function toDocumentItem(row: any): DocumentItem {
+  return {
+    id: row.id,
+    filename: row.title,
+    fileSize: Number(row.file_size_bytes) || 0,
+    mimeType: row.file_type || '',
+    status: row.status,
+    errorMessage: row.error_message,
+    chunkCount: Number(row.chunk_count) || 0,
+    updatedAt: row.updated_at || row.created_at,
+  };
+}
+
 export default function DocumentManagementPage() {
+  const params = useParams<{ id: string }>();
+  const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBase | null>(null);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [filter, setFilter] = useState<'ALL' | 'READY' | 'PROCESSING' | 'FAILED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,153 +51,172 @@ export default function DocumentManagementPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchDocuments = () => {
-    setIsLoading(true);
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    const isValidJwt = token && token.split('.').length === 3;
-    if (!isValidJwt) {
-      setDocuments(getSampleDocuments());
+  const fetchDocuments = useCallback(async (kbId: string, silent = false) => {
+    if (!silent) setIsLoading(true);
+    try {
+      const data = await apiJson<{ documents: any[] }>(`/api/v1/knowledge-bases/${kbId}/documents?limit=100`);
+      setDocuments((data.documents || []).map(toDocumentItem));
+      setErrorMsg(null);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Could not load documents.');
+    } finally {
+      if (!silent) setIsLoading(false);
+    }
+  }, []);
+
+  // Resolve which knowledge base this page is for ("default-kb" -> the org's first KB, created if missing).
+  useEffect(() => {
+    if (!hasRealSession()) {
+      setNeedsLogin(true);
       setIsLoading(false);
       return;
     }
-
-    fetch('/api/v1/documents', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('Unauthenticated');
-        return res.json();
-      })
-      .then((data) => {
-        setDocuments(data.documents || getSampleDocuments());
+    (async () => {
+      try {
+        const kb = isUuid(params.id)
+          ? await apiJson<KnowledgeBase>(`/api/v1/knowledge-bases/${params.id}`)
+          : await getOrCreateDefaultKnowledgeBase();
+        setKnowledgeBase(kb);
+        await fetchDocuments(kb.id);
+      } catch (err: any) {
+        if (err.status === 401) setNeedsLogin(true);
+        else setErrorMsg(err.message || 'Could not load the knowledge base.');
         setIsLoading(false);
-      })
-      .catch(() => {
-        setDocuments(getSampleDocuments());
-        setIsLoading(false);
-      });
-  };
+      }
+    })();
+  }, [params.id, fetchDocuments]);
 
+  // While anything is still being ingested, poll so statuses update live.
   useEffect(() => {
-    fetchDocuments();
-  }, []);
-
-  const getSampleDocuments = (): DocumentItem[] => [
-    {
-      id: 'doc-1',
-      filename: 'Enterprise_HR_Policy_Handbook.pdf',
-      fileSize: 2450000,
-      mimeType: 'application/pdf',
-      status: 'READY',
-      chunkCount: 48,
-      updatedAt: '2026-09-01T12:00:00Z',
-    },
-    {
-      id: 'doc-2',
-      filename: 'API_Architecture_Specification.md',
-      fileSize: 184000,
-      mimeType: 'text/markdown',
-      status: 'READY',
-      chunkCount: 16,
-      updatedAt: '2026-09-01T11:30:00Z',
-    },
-    {
-      id: 'doc-3',
-      filename: 'Customer_Support_SOP_v2.docx',
-      fileSize: 1120000,
-      mimeType: 'application/docx',
-      status: 'PARSING',
-      chunkCount: 0,
-      updatedAt: '2026-09-01T14:10:00Z',
-    },
-  ];
-
-  const handleUploadSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!uploadFile) return;
-    setIsUploading(true);
-
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    const isValidJwt = token && token.split('.').length === 3;
-    const headers: Record<string, string> = {};
-    if (isValidJwt) {
-      headers['Authorization'] = `Bearer ${token}`;
+    if (pollTimer.current) clearTimeout(pollTimer.current);
+    if (knowledgeBase && documents.some((d) => PROCESSING_STATES.includes(d.status))) {
+      pollTimer.current = setTimeout(() => fetchDocuments(knowledgeBase.id, true), 2500);
     }
+    return () => {
+      if (pollTimer.current) clearTimeout(pollTimer.current);
+    };
+  }, [documents, knowledgeBase, fetchDocuments]);
+
+  const handleUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadFile || !knowledgeBase) return;
+    setIsUploading(true);
+    setErrorMsg(null);
 
     const formData = new FormData();
     formData.append('file', uploadFile);
 
-    fetch('/api/v1/documents/upload', {
-      method: 'POST',
-      headers,
-      body: formData,
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('Upload failed');
-        return res.json();
-      })
-      .then(() => {
-        setIsUploading(false);
-        setIsUploadModalOpen(false);
-        setUploadFile(null);
-        fetchDocuments();
-      })
-      .catch(() => {
-        const newDoc: DocumentItem = {
-          id: `doc-${Date.now()}`,
-          filename: uploadFile.name,
-          fileSize: uploadFile.size,
-          mimeType: uploadFile.type || 'text/plain',
-          status: 'QUEUED',
-          chunkCount: 0,
-          updatedAt: new Date().toISOString(),
-        };
-        setDocuments((prev) => [newDoc, ...prev]);
-        setIsUploading(false);
-        setIsUploadModalOpen(false);
-        setUploadFile(null);
+    try {
+      const res = await apiFetch(`/api/v1/knowledge-bases/${knowledgeBase.id}/documents`, {
+        method: 'POST',
+        body: formData,
       });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error?.message || 'Upload failed.');
+      }
+      setIsUploadModalOpen(false);
+      setUploadFile(null);
+      await fetchDocuments(knowledgeBase.id, true);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Upload failed.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDelete = async (doc: DocumentItem) => {
+    if (!knowledgeBase || !window.confirm(`Delete "${doc.filename}" and all of its indexed chunks?`)) return;
+    try {
+      await apiJson(`/api/v1/documents/${doc.id}`, { method: 'DELETE' });
+      setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Delete failed.');
+    }
+  };
+
+  const handleRetry = async (doc: DocumentItem) => {
+    if (!knowledgeBase) return;
+    try {
+      await apiJson(`/api/v1/documents/${doc.id}/retry`, { method: 'POST' });
+      await fetchDocuments(knowledgeBase.id, true);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Retry failed.');
+    }
   };
 
   const filteredDocs = documents.filter((doc) => {
     const matchesSearch = doc.filename.toLowerCase().includes(searchQuery.toLowerCase());
     if (filter === 'ALL') return matchesSearch;
     if (filter === 'READY') return matchesSearch && doc.status === 'READY';
-    if (filter === 'PROCESSING') return matchesSearch && ['QUEUED', 'PARSING', 'CHUNKING', 'EMBEDDING'].includes(doc.status);
+    if (filter === 'PROCESSING') return matchesSearch && PROCESSING_STATES.includes(doc.status);
     if (filter === 'FAILED') return matchesSearch && doc.status === 'FAILED';
     return matchesSearch;
   });
 
-  const getStatusBadge = (status: DocumentItem['status']) => {
-    switch (status) {
+  const getStatusBadge = (doc: DocumentItem) => {
+    switch (doc.status) {
       case 'READY':
         return <Badge variant="success" size="sm" icon={<CheckCircle2 className="w-3 h-3" />}>READY</Badge>;
       case 'FAILED':
-        return <Badge variant="danger" size="sm" icon={<AlertTriangle className="w-3 h-3" />}>FAILED</Badge>;
+        return (
+          <span title={doc.errorMessage || 'Ingestion failed'}>
+            <Badge variant="danger" size="sm" icon={<AlertTriangle className="w-3 h-3" />}>FAILED</Badge>
+          </span>
+        );
       default:
-        return <Badge variant="warning" size="sm" icon={<Clock className="w-3 h-3 animate-spin" />}>{status}</Badge>;
+        return <Badge variant="warning" size="sm" icon={<Clock className="w-3 h-3 animate-spin" />}>{doc.status}</Badge>;
     }
   };
+
+  if (needsLogin) {
+    return (
+      <SaaSLayout>
+        <div className="max-w-xl mx-auto pt-16">
+          <EmptyState
+            icon={<Database className="w-8 h-8" />}
+            title="Sign in to manage documents"
+            description="Please sign in to upload and index documents in your knowledge base."
+            action={
+              <Link href="/login">
+                <Button>Go to sign in</Button>
+              </Link>
+            }
+          />
+        </div>
+      </SaaSLayout>
+    );
+  }
 
   return (
     <SaaSLayout>
       <div className="space-y-6 max-w-7xl mx-auto">
-        
+        <Link
+          href="/knowledge-bases"
+          className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-[#2563EB] transition-colors"
+        >
+          ← All knowledge bases
+        </Link>
+
         {/* Knowledge Base Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
           <div>
             <div className="flex items-center gap-2">
               <Database className="w-5 h-5 text-[#2563EB]" />
-              <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Default Knowledge Base</h1>
-              <Badge variant="indigo" size="sm">pgvector (HNSW)</Badge>
+              <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">{knowledgeBase?.name || 'Knowledge Base'}</h1>
+              <Badge variant="indigo" size="sm">Hybrid search</Badge>
             </div>
             <p className="text-sm text-[#475569] mt-1">
-              Production vector storage with structure-aware chunking and automatic metadata extraction.
+              Uploaded files are parsed, chunked and embedded automatically, then become searchable in Chat.
             </p>
           </div>
 
           <Button
+            disabled={!knowledgeBase}
             onClick={() => setIsUploadModalOpen(true)}
             leftIcon={<UploadCloud className="w-4 h-4" />}
             variant="primary"
@@ -215,6 +256,13 @@ export default function DocumentManagementPage() {
 
         </div>
 
+        {errorMsg && (
+          <div className="flex items-start gap-2 p-3 rounded-[8px] border border-red-200 bg-red-50 text-xs text-red-700">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
         {/* Document List Table */}
         {isLoading ? (
           <LoadingState message="Fetching knowledge base documents..." />
@@ -253,7 +301,7 @@ export default function DocumentManagementPage() {
                       <td className="py-3 px-4 text-slate-500 font-mono">
                         {(doc.fileSize / 1024 / 1024).toFixed(2)} MB
                       </td>
-                      <td className="py-3 px-4">{getStatusBadge(doc.status)}</td>
+                      <td className="py-3 px-4">{getStatusBadge(doc)}</td>
                       <td className="py-3 px-4 text-slate-500 font-mono">
                         <span className="flex items-center gap-1">
                           <Layers className="w-3.5 h-3.5 text-slate-400" /> {doc.chunkCount}
@@ -262,8 +310,21 @@ export default function DocumentManagementPage() {
                       <td className="py-3 px-4 text-slate-500">
                         {new Date(doc.updatedAt).toLocaleDateString()}
                       </td>
-                      <td className="py-3 px-4 text-right">
-                        <button className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-[4px] transition-colors">
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        {doc.status === 'FAILED' && (
+                          <button
+                            onClick={() => handleRetry(doc)}
+                            title="Retry ingestion"
+                            className="p-1.5 text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 rounded-[4px] transition-colors"
+                          >
+                            <RotateCw className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDelete(doc)}
+                          title="Delete document"
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-[4px] transition-colors"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
@@ -288,6 +349,7 @@ export default function DocumentManagementPage() {
               <p className="text-[11px] text-slate-500 mt-1">Supports PDF, DOCX, TXT, Markdown, and HTML (Max 25MB)</p>
               <input
                 type="file"
+                accept=".pdf,.docx,.txt,.md,.markdown,.html,.htm"
                 className="hidden"
                 id="file-upload"
                 onChange={(e) => setUploadFile(e.target.files?.[0] || null)}

@@ -21,9 +21,7 @@ export default function SignUpPage() {
   const [email, setEmail] = useState('');
   const [orgName, setOrgName] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [agreeTerms, setAgreeTerms] = useState(true);
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -37,18 +35,28 @@ export default function SignUpPage() {
       return;
     }
 
+    if (fullName.trim().length > 255) {
+      setErrorMsg('Full name must be at most 255 characters.');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || email.trim().length > 255) {
+      setErrorMsg('Please enter a valid email address.');
+      return;
+    }
+
+    if (orgName.trim().length > 255) {
+      setErrorMsg('Organization name must be at most 255 characters.');
+      return;
+    }
+
+    if (password.length > 128) {
+      setErrorMsg('Password must be at most 128 characters.');
+      return;
+    }
+
     if (password.length < 8) {
       setErrorMsg('Password must be at least 8 characters.');
-      return;
-    }
-
-    if (confirmPassword && password !== confirmPassword) {
-      setErrorMsg('Passwords do not match.');
-      return;
-    }
-
-    if (!agreeTerms) {
-      setErrorMsg('Please accept the platform terms to continue.');
       return;
     }
 
@@ -92,15 +100,6 @@ export default function SignUpPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handlePrefillTest = () => {
-    const randomSuffix = Math.floor(Math.random() * 9000 + 1000);
-    setFullName('Alex Rivera');
-    setOrgName('Acme Corporation');
-    setEmail(`alex_${randomSuffix}@acme.com`);
-    setPassword('Password123!');
-    setConfirmPassword('Password123!');
   };
 
   return (
@@ -152,7 +151,7 @@ export default function SignUpPage() {
                 id="signup-name"
                 type="text"
                 required
-                placeholder="Alex Rivera"
+                placeholder="Your full name"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-white border border-[#CBD5E1] rounded-[6px] text-sm text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#DBEAFE] transition-all"
@@ -167,7 +166,7 @@ export default function SignUpPage() {
               <input
                 id="signup-org"
                 type="text"
-                placeholder="Acme Corporation"
+                placeholder="Your company name"
                 value={orgName}
                 onChange={(e) => setOrgName(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-white border border-[#CBD5E1] rounded-[6px] text-sm text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#DBEAFE] transition-all"
@@ -219,22 +218,6 @@ export default function SignUpPage() {
               <p className="text-xs text-[#64748B] mt-1">Minimum 8 characters.</p>
             </div>
 
-            {/* Accept Terms */}
-            <div className="pt-1">
-              <label className="flex items-start gap-2.5 cursor-pointer text-sm text-[#475569] select-none">
-                <input
-                  type="checkbox"
-                  required
-                  checked={agreeTerms}
-                  onChange={(e) => setAgreeTerms(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 rounded border-[#CBD5E1] text-[#2563EB] focus:ring-[#2563EB] cursor-pointer"
-                />
-                <span>
-                  Accept enterprise terms of service and tenant data isolation policies
-                </span>
-              </label>
-            </div>
-
             {/* Submit Button */}
             <div className="pt-2">
               <button
@@ -256,16 +239,8 @@ export default function SignUpPage() {
 
           </form>
 
-          {/* Quick Prefill & Sign In Link */}
-          <div className="mt-6 pt-5 border-t border-[#E2E8F0] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm">
-            <button
-              type="button"
-              onClick={handlePrefillTest}
-              className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium text-left hover:underline"
-            >
-              Prefill sample details
-            </button>
-
+          {/* Sign In Link */}
+          <div className="mt-6 pt-5 border-t border-[#E2E8F0] text-center text-sm">
             <div className="text-[#475569]">
               Already registered?{' '}
               <Link href="/login" className="text-[#2563EB] hover:text-[#1D4ED8] font-medium hover:underline">

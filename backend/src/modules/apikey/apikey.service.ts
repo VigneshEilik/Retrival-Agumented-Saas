@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { withTenantContext } from '../../db';
+import { notFound } from '../../middleware/error_handler';
 
 export class ApiKeyService {
   static async createApiKey(organizationId: string, name: string, expiresInDays?: number) {
@@ -56,7 +57,7 @@ export class ApiKeyService {
       );
 
       if (res.rows.length === 0) {
-        throw new Error('API Key not found or already revoked');
+        throw notFound('API key not found or already revoked', 'API_KEY_NOT_FOUND');
       }
 
       await client.query(

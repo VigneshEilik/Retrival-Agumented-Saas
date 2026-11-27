@@ -37,25 +37,22 @@ router.get('/ready', async (req: Request, res: Response) => {
     isHealthy = false;
   }
 
-  // Probe Redis Connection
+  // Probe Redis. Redis is NOT required to serve traffic (ingestion runs in-process and rate
+  // limiting falls back to memory), so a Redis outage reports DEGRADED but stays ready.
+  const redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 0, connectTimeout: 1000, retryStrategy: () => null });
+  redis.on('error', () => {});
   try {
-    const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1, connectTimeout: 1000 });
-    const pingRes = await redis.ping();
-    if (pingRes === 'PONG') {
-      checks.redis = 'UP';
-    } else {
-      isHealthy = false;
-    }
-    await redis.quit();
-  } catch (error) {
+    await redis.connect();
+    checks.redis = (await redis.ping()) === 'PONG' ? 'UP' : 'DOWN';
+  } catch {
     checks.redis = 'DOWN';
-    // Fallback: If Redis is offline in test/dev environment, mark as DEGRADED rather than fatal
-    checks.redis = 'DOWN';
+  } finally {
+    redis.disconnect(); // always release the probe connection
   }
 
   const statusCode = isHealthy ? 200 : 503;
   return res.status(statusCode).json({
-    status: isHealthy ? 'READY' : 'UNREADY',
+    status: !isHealthy ? 'UNREADY' : checks.redis === 'UP' ? 'READY' : 'DEGRADED',
     checks,
     timestamp: new Date().toISOString(),
   });

@@ -71,7 +71,7 @@ export class AuthService {
       // 4. Initialize Free Subscription Plan
       await client.query(
         `INSERT INTO subscriptions (organization_id, plan_tier, max_documents, max_storage_mb, max_monthly_tokens, max_monthly_requests) 
-         VALUES ($1, 'FREE', 20, 100, 1000000, 1000)`,
+         VALUES ($1, 'FREE', 20, 100, 100000, 1000)`,
         [organization.id]
       );
 
@@ -168,29 +168,24 @@ export class AuthService {
   static async refreshTokenRotation(refreshToken: string) {
     let payload: any;
     try {
-      payload = jwt.verify(refreshToken, config.jwtRefreshSecret);
+      payload = jwt.verify(refreshToken, config.jwtRefreshSecret, { algorithms: ['HS256'] });
     } catch (e) {
       throw new Error('Invalid or expired refresh token');
     }
 
     const tokenHash = this.hashToken(refreshToken);
 
+    // Atomic "check and revoke": of two concurrent refreshes with the same token, exactly one wins.
     const tokenRes = await pool.query(
-      `SELECT id, user_id, revoked FROM refresh_tokens WHERE token_hash = $1`,
+      `UPDATE refresh_tokens SET revoked = TRUE
+        WHERE token_hash = $1 AND revoked = FALSE AND expires_at > NOW()
+        RETURNING id, user_id`,
       [tokenHash]
     );
 
-    if (tokenRes.rows.length === 0 || tokenRes.rows[0].revoked) {
+    if (tokenRes.rows.length === 0) {
       throw new Error('Refresh token revoked or invalid');
     }
-
-    const tokenRecord = tokenRes.rows[0];
-
-    // Revoke old refresh token
-    await pool.query(
-      `UPDATE refresh_tokens SET revoked = TRUE WHERE id = $1`,
-      [tokenRecord.id]
-    );
 
     // Fetch user & active organization membership
     const userRes = await pool.query(`SELECT id, email, full_name FROM users WHERE id = $1`, [payload.userId]);
@@ -216,6 +211,27 @@ export class AuthService {
     return newTokens;
   }
 
+  /** Current user's profile and role in the active organisation. */
+  static async getProfile(userId: string, organizationId: string) {
+    const userRes = await pool.query(`SELECT id, email, full_name, created_at FROM users WHERE id = $1`, [userId]);
+    if (userRes.rows.length === 0) return null;
+    const org = await withTenantContext(
+      organizationId,
+      async (client) =>
+        (
+          await client.query(
+            `SELECT o.id, o.name, o.slug, om.role FROM organizations o
+               JOIN organization_members om ON om.organization_id = o.id
+              WHERE o.id = $1 AND om.user_id = $2`,
+            [organizationId, userId]
+          )
+        ).rows[0] || null,
+      userId
+    );
+    const u = userRes.rows[0];
+    return { id: u.id, email: u.email, fullName: u.full_name, createdAt: u.created_at, organization: org };
+  }
+
   static async logout(refreshToken: string) {
     const tokenHash = this.hashToken(refreshToken);
     await pool.query(`UPDATE refresh_tokens SET revoked = TRUE WHERE token_hash = $1`, [tokenHash]);
@@ -235,7 +251,9 @@ export class AuthService {
     );
 
     const tokenHash = this.hashToken(refreshToken);
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    // Database expiry mirrors the token's own exp claim (JWT_REFRESH_EXPIRES_IN).
+    const decoded = jwt.decode(refreshToken) as { exp?: number } | null;
+    const expiresAt = new Date(decoded?.exp ? decoded.exp * 1000 : Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await pool.query(
       `INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,

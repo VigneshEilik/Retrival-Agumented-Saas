@@ -20,11 +20,9 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [showForgotNotice, setShowForgotNotice] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +30,16 @@ export default function LoginPage() {
 
     if (!email.trim() || !password) {
       setErrorMsg('Please enter both email and password.');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setErrorMsg('Please enter a valid email address.');
+      return;
+    }
+
+    if (password.length > 128) {
+      setErrorMsg('Password must be at most 128 characters.');
       return;
     }
 
@@ -63,74 +71,6 @@ export default function LoginPage() {
     } catch (err: any) {
       console.error('Login error:', err);
       setErrorMsg(err.message || 'Unable to connect to authentication server.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleQuickDemoLogin = async () => {
-    setErrorMsg(null);
-    setIsLoading(true);
-    setEmail('vignesh@acme.com');
-    setPassword('Password123!');
-
-    try {
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'vignesh@acme.com', password: 'Password123!' }),
-      });
-
-      const json = await res.json();
-
-      if (res.ok && json.data && json.data.tokens) {
-        setAuthSession({
-          user: json.data.user,
-          organization: json.data.organization,
-          tokens: json.data.tokens,
-        });
-        router.push('/dashboard');
-        return;
-      }
-
-      // Offline / fallback session resilience
-      setAuthSession({
-        user: {
-          id: 'usr-vignesh-demo',
-          email: 'vignesh@acme.com',
-          fullName: 'Vignesh K.',
-        },
-        organization: {
-          id: '12d1ce11-a8a9-4d4a-99bc-0dc1b3d339aa',
-          name: 'Acme Enterprise Corp',
-          role: 'OWNER',
-          slug: 'acme-enterprise-corp',
-        },
-        tokens: {
-          accessToken: 'demo-jwt-session-access-token-active',
-          refreshToken: 'demo-jwt-session-refresh-token-active',
-        },
-      });
-      router.push('/dashboard');
-    } catch {
-      setAuthSession({
-        user: {
-          id: 'usr-vignesh-demo',
-          email: 'vignesh@acme.com',
-          fullName: 'Vignesh K.',
-        },
-        organization: {
-          id: '12d1ce11-a8a9-4d4a-99bc-0dc1b3d339aa',
-          name: 'Acme Enterprise Corp',
-          role: 'OWNER',
-          slug: 'acme-enterprise-corp',
-        },
-        tokens: {
-          accessToken: 'demo-jwt-session-access-token-active',
-          refreshToken: 'demo-jwt-session-refresh-token-active',
-        },
-      });
-      router.push('/dashboard');
     } finally {
       setIsLoading(false);
     }
@@ -186,7 +126,7 @@ export default function LoginPage() {
                 type="email"
                 autoComplete="email"
                 required
-                placeholder="vignesh@acme.com"
+                placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-white border border-[#CBD5E1] rounded-[6px] text-sm text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#DBEAFE] transition-all"
@@ -195,18 +135,9 @@ export default function LoginPage() {
 
             {/* Password */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="login-password" className="block text-sm font-medium text-[#0F172A]">
-                  Password
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowForgotNotice(!showForgotNotice)}
-                  className="text-xs text-[#2563EB] hover:text-[#1D4ED8] font-medium hover:underline focus:outline-none"
-                >
-                  Forgot password?
-                </button>
-              </div>
+              <label htmlFor="login-password" className="block text-sm font-medium text-[#0F172A] mb-1.5">
+                Password
+              </label>
               <div className="relative">
                 <input
                   id="login-password"
@@ -229,26 +160,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Password Reset Notice */}
-            {showForgotNotice && (
-              <div className="p-3 bg-[#EFF6FF] border border-[#BFDBFE] rounded-[6px] text-xs text-[#1E40AF]">
-                For enterprise compliance, password resets are issued through workspace tenant owners or CLI administrators. You can also use the 1-click demo button below.
-              </div>
-            )}
-
-            {/* Remember Me */}
-            <div className="flex items-center justify-between pt-1">
-              <label className="flex items-center gap-2 cursor-pointer text-sm text-[#475569] select-none">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded border-[#CBD5E1] text-[#2563EB] focus:ring-[#2563EB] cursor-pointer"
-                />
-                <span>Remember this device</span>
-              </label>
-            </div>
-
             {/* Submit Button */}
             <div className="pt-2">
               <button
@@ -269,22 +180,6 @@ export default function LoginPage() {
             </div>
 
           </form>
-
-          {/* Quick Demo Sign In Box */}
-          <div className="mt-5 p-3.5 bg-[#EFF6FF] border border-[#BFDBFE] rounded-[6px] flex items-center justify-between gap-3 text-xs">
-            <div>
-              <div className="font-semibold text-[#1E3A8A]">Quick Demo Access</div>
-              <div className="text-[#3B82F6] font-mono text-[11px]">vignesh@acme.com</div>
-            </div>
-            <button
-              type="button"
-              onClick={handleQuickDemoLogin}
-              disabled={isLoading}
-              className="px-3 py-1.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-[6px] font-medium text-xs transition-colors shrink-0 shadow-sm"
-            >
-              1-Click Sign In
-            </button>
-          </div>
 
           {/* Sign Up Link */}
           <div className="mt-6 pt-5 border-t border-[#E2E8F0] text-center text-sm text-[#475569]">

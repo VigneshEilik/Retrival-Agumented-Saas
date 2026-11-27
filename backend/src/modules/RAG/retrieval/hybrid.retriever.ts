@@ -39,12 +39,16 @@ export class HybridRetriever implements Retriever {
       }
     });
 
+    // RRF decides the ORDER. For the reported score we keep the most meaningful raw signal:
+    // the semantic (cosine) similarity when the chunk was found by vector search, else the keyword-match ratio.
+    const vectorScores = new Map(vectorCandidates.map((c) => [c.chunkId, c.score]));
+
     const merged = Array.from(rrfScores.values())
       .sort((a, b) => b.rrfScore - a.rrfScore)
       .slice(0, topK)
-      .map(({ candidate, rrfScore }) => ({
+      .map(({ candidate }) => ({
         ...candidate,
-        score: parseFloat(rrfScore.toFixed(4)),
+        score: parseFloat((vectorScores.get(candidate.chunkId) ?? candidate.score).toFixed(4)),
       }));
 
     return merged;

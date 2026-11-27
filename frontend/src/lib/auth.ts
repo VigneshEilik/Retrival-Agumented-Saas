@@ -33,19 +33,6 @@ const REFRESH_TOKEN_KEY = 'refreshToken';
 const USER_KEY = 'user';
 const ORG_KEY = 'organization';
 
-const DEFAULT_USER: User = {
-  id: 'usr-default-vignesh',
-  email: 'vignesh@acme.com',
-  fullName: 'Vignesh K.',
-};
-
-const DEFAULT_ORG: Organization = {
-  id: '12d1ce11-a8a9-4d4a-99bc-0dc1b3d339aa',
-  name: 'Acme Enterprise Corp',
-  role: 'OWNER',
-  slug: 'acme-enterprise-corp',
-};
-
 export function getStoredToken(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem(TOKEN_KEY) || localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -98,6 +85,15 @@ export function setAuthSession(data: AuthSessionData): void {
   window.dispatchEvent(new Event('ragos-auth-changed'));
 }
 
+/** Merges fields into the stored organization (e.g. after a rename) and notifies listeners. */
+export function updateStoredOrganization(patch: Partial<Organization>): void {
+  if (typeof window === 'undefined') return;
+  const current = getStoredOrg();
+  if (!current) return;
+  localStorage.setItem(ORG_KEY, JSON.stringify({ ...current, ...patch }));
+  window.dispatchEvent(new Event('ragos-auth-changed'));
+}
+
 export async function clearAuthSession(): Promise<void> {
   if (typeof window === 'undefined') return;
 
@@ -142,8 +138,8 @@ export function useAuth() {
     const curOrg = getStoredOrg();
 
     setToken(curToken);
-    setUser(curUser || (curToken ? DEFAULT_USER : null));
-    setOrganization(curOrg || (curToken ? DEFAULT_ORG : null));
+    setUser(curToken ? curUser : null);
+    setOrganization(curToken ? curOrg : null);
     setIsLoggedIn(Boolean(curToken));
     setIsLoading(false);
   }, []);
@@ -170,8 +166,8 @@ export function useAuth() {
   }, [syncAuth]);
 
   return {
-    user: user || DEFAULT_USER,
-    organization: organization || DEFAULT_ORG,
+    user,
+    organization,
     token,
     isAuthenticated: isLoggedIn,
     isLoading,

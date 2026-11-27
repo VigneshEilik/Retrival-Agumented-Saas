@@ -51,13 +51,24 @@ jobs:
       - name: Run Backend Build & Typecheck
         run: cd backend && npm run build
 
+      # Tests must run as a NON-superuser role: superusers bypass Row-Level Security,
+      # which would make the tenant-isolation tests meaningless.
+      - name: Create least-privilege application role
+        env:
+          PGPASSWORD: rag_password
+        run: |
+          psql -h localhost -U rag_user -d rag_saas_db \
+            -v app_role=rag_app -v app_password=ci_app_password -v owner_role=rag_user \
+            -f backend/scripts/db/setup-app-role.sql
+
       - name: Execute Full Jest Automated Test Suite (Unit, RAG Eval, Security Red Team, Load Test)
         env:
-          DATABASE_URL: postgresql://rag_user:rag_password@localhost:5432/rag_saas_db
+          DATABASE_URL: postgresql://rag_app:ci_app_password@localhost:5432/rag_saas_db
+          MIGRATION_DATABASE_URL: postgresql://rag_user:rag_password@localhost:5432/rag_saas_db
           REDIS_URL: redis://localhost:6379
-          JWT_SECRET: super-secret-jwt-key
-          JWT_REFRESH_SECRET: super-secret-refresh-key
-        run: cd backend && npx jest --runInBand --detectOpenHandles
+          JWT_SECRET: ci-only-jwt-secret-not-used-anywhere-else-000
+          JWT_REFRESH_SECRET: ci-only-refresh-secret-not-used-anywhere-else-0
+        run: cd backend && npx jest --runInBand --forceExit
 
       - name: Install Frontend Dependencies
         run: cd frontend && npm ci
